@@ -12,6 +12,10 @@
     <ProjectReference Include="..\ServicesApp\ServicesApp.csproj"
                       Publish="true"
                       Properties="RuntimeIdentifier=win-x64;SelfContained=false;PublishSingleFile=false" />
+    <!-- 命令行工具：自包含单文件，与 ServicesApp.exe 安装到同一目录 -->
+    <ProjectReference Include="..\Services.Cli\Services.Cli.csproj"
+                      Publish="true"
+                      Properties="RuntimeIdentifier=win-x64;SelfContained=true;PublishSingleFile=true" />
   </ItemGroup>
 
   <ItemGroup>
@@ -21,6 +25,12 @@
       <SuppressRootDirectory>true</SuppressRootDirectory>
     </HarvestDirectory>
     <BindPath Include="obj\$(Platform)\$(Configuration)\publish\ServicesApp" />
+    <HarvestDirectory Include="obj\$(Platform)\$(Configuration)\publish\Services.Cli">
+      <ComponentGroupName>CliFiles</ComponentGroupName>
+      <DirectoryRefId>INSTALLFOLDER</DirectoryRefId>
+      <SuppressRootDirectory>true</SuppressRootDirectory>
+    </HarvestDirectory>
+    <BindPath Include="obj\$(Platform)\$(Configuration)\publish\Services.Cli" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,4 +1,5 @@
 using System;
+using System.Text.RegularExpressions;
 
 namespace Services.Core.Helpers
 {
@@ -28,6 +29,19 @@ namespace Services.Core.Helpers
                 LogLineKind.System => SystemTag + text,
                 _ => text
             };
+        }
+
+        // CSI（含 SGR 颜色）、OSC 及其他双字符 ESC 序列
+        private static readonly Regex AnsiEscapeRegex = new(
+            @"\x1B(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1B]*(?:\x07|\x1B\\)?|[@-Z\\-_])",
+            RegexOptions.Compiled);
+
+        /// <summary>
+        /// 去除 ANSI 转义序列（颜色、光标控制等），得到纯文本
+        /// </summary>
+        public static string StripAnsi(string text)
+        {
+            return text.IndexOf('\x1B') < 0 ? text : AnsiEscapeRegex.Replace(text, string.Empty);
         }
 
         public static (LogLineKind Kind, string Text) Parse(string line)

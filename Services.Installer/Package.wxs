@@ -44,9 +44,17 @@
       <RegistryValue Root="HKCU" Key="Software\ServicesApp" Name="Installed" Type="integer" Value="1" KeyPath="yes" />
     </Component>
 
+    <!-- 将安装目录加入系统 PATH，使 servicesctl 命令可在任意终端直接使用 -->
+    <Component Id="CliPathEnv" Directory="INSTALLFOLDER">
+      <Environment Id="PathEnv" Name="PATH" Value="[INSTALLFOLDER]" Part="last" Action="set" System="yes" Permanent="no" />
+      <RegistryValue Root="HKLM" Key="Software\ServicesApp" Name="CliInPath" Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
     <Feature Id="Main" Title="ServicesApp">
       <ComponentGroupRef Id="AppFiles" />
+      <ComponentGroupRef Id="CliFiles" />
       <ComponentRef Id="Shortcuts" />
+      <ComponentRef Id="CliPathEnv" />
     </Feature>
 
     <ui:WixUI Id="WixUI_InstallDir" />

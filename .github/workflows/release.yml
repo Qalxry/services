@@ -42,6 +42,13 @@ jobs:
           /p:PublishDir=${{ github.workspace }}\publish-single\ `
           /p:DebugType=none
 
+    - name: 编译命令行工具 (Build CLI)
+      run: |
+        msbuild Services.Cli/Services.Cli.csproj `
+          /t:Publish `
+          /p:Configuration=Release `
+          /p:PublishDir=${{ github.workspace }}\publish-single\
+
     - name: 编译安装包 (Build MSI)
       run: msbuild Services.Installer/Services.Installer.wixproj /t:Build /p:Configuration=Release /p:Platform=x64
 

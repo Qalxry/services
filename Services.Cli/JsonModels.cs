@@ -1,0 +1,87 @@
+using System.Text.Encodings.Web;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
+namespace Services.Cli
+{
+    internal sealed class ServiceInfo
+    {
+        public string Id { get; set; } = "";
+        public string Name { get; set; } = "";
+        public string? Description { get; set; }
+        /// <summary>running / stopped / start_pending / stop_pending / unknown</summary>
+        public string State { get; set; } = "";
+        public string StatusText { get; set; } = "";
+        public int? Pid { get; set; }
+        /// <summary>auto / manual / disabled</summary>
+        public string StartupType { get; set; } = "";
+        public string ExePath { get; set; } = "";
+        /// <summary>保存的原始启动参数（可能为多行）</summary>
+        public string? Args { get; set; }
+        /// <summary>实际传给程序的命令行参数（多行合并为一行）</summary>
+        public string CommandLineArgs { get; set; } = "";
+        public string? WorkingDir { get; set; }
+        public bool AutoRestart { get; set; }
+        public RestartPolicyInfo RestartPolicy { get; set; } = new();
+        public DateTime CreatedAt { get; set; }
+        public string? LatestLogPath { get; set; }
+    }
+
+    internal sealed class RestartPolicyInfo
+    {
+        public int DelaySeconds { get; set; }
+        /// <summary>0 表示不限制</summary>
+        public int MaxRestarts { get; set; }
+        public int ResetMinutes { get; set; }
+        public bool Backoff { get; set; }
+    }
+
+    internal sealed class ActionResult
+    {
+        public bool Ok { get; set; } = true;
+        public string Action { get; set; } = "";
+        public string Id { get; set; } = "";
+        public string Message { get; set; } = "";
+        public ServiceInfo? Service { get; set; }
+    }
+
+    internal sealed class LogLineInfo
+    {
+        /// <summary>stdout / stderr / system</summary>
+        public string Stream { get; set; } = "";
+        public string Text { get; set; } = "";
+    }
+
+    internal sealed class LogsResult
+    {
+        public string Id { get; set; } = "";
+        public string? LogPath { get; set; }
+        public List<LogLineInfo> Lines { get; set; } = new();
+    }
+
+    internal sealed class VersionInfo
+    {
+        public string Version { get; set; } = "";
+    }
+
+    [JsonSourceGenerationOptions(
+        PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+        WriteIndented = true)]
+    [JsonSerializable(typeof(ServiceInfo))]
+    [JsonSerializable(typeof(List<ServiceInfo>))]
+    [JsonSerializable(typeof(ActionResult))]
+    [JsonSerializable(typeof(LogsResult))]
+    [JsonSerializable(typeof(VersionInfo))]
+    internal partial class CliJsonContext : JsonSerializerContext
+    {
+        /// <summary>
+        /// 不转义中文等非 ASCII 字符，便于阅读
+        /// </summary>
+        public static CliJsonContext Readable { get; } = new(new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            WriteIndented = true,
+            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+        });
+    }
+}

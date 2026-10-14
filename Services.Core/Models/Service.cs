@@ -147,6 +147,27 @@ namespace Services.Core.Models
         public int RestartResetMinutes { get; set; } = RestartPolicyDefaults.ResetMinutes;
         public bool RestartBackoff { get; set; } = RestartPolicyDefaults.Backoff;
         public ServiceStartupType StartupType { get; set; } = ServiceStartupType.Auto;
+
+        /// <summary>
+        /// 以已有服务的当前配置为基础创建配置（用于部分字段更新）
+        /// </summary>
+        public static ServiceConfig FromService(Service service)
+        {
+            return new ServiceConfig
+            {
+                Name = service.Name,
+                ExePath = service.ExePath,
+                Args = service.Args,
+                WorkingDir = service.WorkingDir,
+                Description = service.Description,
+                AutoRestart = service.AutoRestart,
+                RestartDelaySeconds = service.RestartDelaySeconds,
+                MaxRestarts = service.MaxRestarts,
+                RestartResetMinutes = service.RestartResetMinutes,
+                RestartBackoff = service.RestartBackoff,
+                StartupType = service.StartupType
+            };
+        }
     }
 
     /// <summary>

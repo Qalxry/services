@@ -19,6 +19,12 @@ namespace Services.Core.Services
         private readonly object _lock = new();
         private const int MaxConcurrentStatusQueries = 8;
 
+        /// <summary>
+        /// 作为服务包装器注册的可执行文件路径。为空时使用当前进程（GUI 自身）；
+        /// 命令行工具需指定为 ServicesApp.exe，保证与 GUI 创建的服务一致。
+        /// </summary>
+        public string? WrapperExePath { get; set; }
+
         public WindowsServiceManager()
         {
         }
@@ -111,7 +117,8 @@ namespace Services.Core.Services
             });
         }
 
-        public async Task CreateServiceAsync(ServiceConfig config)
+        /// <returns>新服务的 ID</returns>
+        public async Task<string> CreateServiceAsync(ServiceConfig config)
                 {
                     ValidateConfig(config);
 
@@ -123,9 +130,8 @@ namespace Services.Core.Services
                         if (key != null) throw new Exception($"Service {serviceName} already exists");
                     }
 
-                    var module = Process.GetCurrentProcess().MainModule;
-                    if (module == null) throw new Exception("Cannot determine current executable path");
-                    string currentExe = module.FileName;
+                    string currentExe = WrapperExePath ?? Process.GetCurrentProcess().MainModule?.FileName
+                        ?? throw new Exception("Cannot determine current executable path");
 
                     // Construct command safely
                     string wrapperCmd = $"\"{currentExe}\" --service-wrapper \"{serviceName}\"";
@@ -199,6 +205,7 @@ namespace Services.Core.Services
                     await RunCommandAsync("sc.exe", $"failure \"{serviceName}\" reset= 86400 actions= restart/60000/restart/60000/restart/60000");
 
                     await LoadServicesAsync();
+                    return serviceName;
                 }
 
         /// <summary>
