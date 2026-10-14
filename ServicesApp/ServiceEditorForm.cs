@@ -17,6 +17,7 @@ namespace ServicesApp
         private readonly TextBox _exeBox;
         private readonly TextBox _argsBox;
         private readonly TextBox _workDirBox;
+        private readonly TextBox _descriptionBox;
         private readonly CheckBox _autoRestartCheck;
         private readonly TextBlock _errorText;
 
@@ -73,11 +74,27 @@ namespace ServicesApp
             Grid.SetColumn(_argsBox, 0); Grid.SetRow(_argsBox, 3);
             Grid.SetColumnSpan(_argsBox, 2);
 
+            // Description (multi-line)
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            _descriptionBox = new TextBox
+            {
+                Header = "描述 (可选)",
+                PlaceholderText = "服务用途说明",
+                Description = "系统服务描述将显示为：Managed by Windows Service Manager: {描述}",
+                AcceptsReturn = true,
+                TextWrapping = TextWrapping.Wrap,
+                MinHeight = 60,
+                MaxHeight = 120
+            };
+            ScrollViewer.SetVerticalScrollBarVisibility(_descriptionBox, ScrollBarVisibility.Auto);
+            Grid.SetColumn(_descriptionBox, 0); Grid.SetRow(_descriptionBox, 4);
+            Grid.SetColumnSpan(_descriptionBox, 2);
+
             // Auto Restart
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
             _autoRestartCheck = new CheckBox { Content = "失败自动重启", IsChecked = false, VerticalAlignment = VerticalAlignment.Center };
-            Grid.SetColumn(_autoRestartCheck, 0); Grid.SetRow(_autoRestartCheck, 4);
+            Grid.SetColumn(_autoRestartCheck, 0); Grid.SetRow(_autoRestartCheck, 5);
 
             // Validation message
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -87,7 +104,7 @@ namespace ServicesApp
                 TextWrapping = TextWrapping.Wrap,
                 Visibility = Visibility.Collapsed
             };
-            Grid.SetColumn(_errorText, 0); Grid.SetRow(_errorText, 5);
+            Grid.SetColumn(_errorText, 0); Grid.SetRow(_errorText, 6);
             Grid.SetColumnSpan(_errorText, 2);
 
             // Add children
@@ -96,6 +113,7 @@ namespace ServicesApp
             grid.Children.Add(exeRow);
             grid.Children.Add(workDirRow);
             grid.Children.Add(_argsBox);
+            grid.Children.Add(_descriptionBox);
             grid.Children.Add(_autoRestartCheck);
             grid.Children.Add(_errorText);
 
@@ -105,6 +123,7 @@ namespace ServicesApp
                 _exeBox.Text = existing.ExePath;
                 _argsBox.Text = existing.Args ?? "";
                 _workDirBox.Text = existing.WorkingDir ?? "";
+                _descriptionBox.Text = existing.Description ?? "";
                 _autoRestartCheck.IsChecked = existing.AutoRestart;
                 _startupBox.SelectedIndex = (int)existing.StartupType - (int)ServiceStartupType.Auto;
             }
@@ -197,6 +216,7 @@ namespace ServicesApp
                 ExePath = _exeBox.Text.Trim(),
                 Args = NormalizeLineEndings(_argsBox.Text).Trim(),
                 WorkingDir = _workDirBox.Text.Trim(),
+                Description = NormalizeLineEndings(_descriptionBox.Text).Trim(),
                 AutoRestart = _autoRestartCheck.IsChecked ?? false,
                 StartupType = (ServiceStartupType)(_startupBox.SelectedIndex + (int)ServiceStartupType.Auto)
             };

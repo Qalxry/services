@@ -78,6 +78,7 @@ namespace Services.Core.Services
                 ExePath = s.ExePath,
                 Args = s.Args,
                 WorkingDir = s.WorkingDir,
+                Description = s.Description,
                 StartupType = s.StartupType,
                 AutoRestart = s.AutoRestart,
                 CreatedAt = s.CreatedAt,
@@ -274,12 +275,15 @@ namespace Services.Core.Services
             paramsKey.SetValue("Args", config.Args ?? "");
             paramsKey.SetValue("WorkingDir", string.IsNullOrEmpty(config.WorkingDir) ? Path.GetDirectoryName(config.ExePath) ?? "" : config.WorkingDir);
             paramsKey.SetValue("DisplayName", config.Name);
+            paramsKey.SetValue("Description", config.Description ?? "");
             paramsKey.SetValue("AutoRestart", config.AutoRestart ? 1 : 0);
         }
 
         private static string BuildServiceDescription(ServiceConfig config)
         {
-            return $"Managed by Windows Service Manager: {config.Name}";
+            // 未填写描述时回退为服务名称（与旧版本行为一致）
+            var description = string.IsNullOrWhiteSpace(config.Description) ? config.Name : config.Description.Trim();
+            return $"Managed by Windows Service Manager: {description}";
         }
 
         private static void SetServiceDescription(string serviceName, string description)
@@ -544,6 +548,7 @@ namespace Services.Core.Services
             var displayName = paramsKey.GetValue("DisplayName") as string ?? serviceName;
             var args = paramsKey.GetValue("Args") as string;
             var workingDir = paramsKey.GetValue("WorkingDir") as string;
+            var description = paramsKey.GetValue("Description") as string;
             var autoRestartVal = paramsKey.GetValue("AutoRestart");
             bool autoRestart = (autoRestartVal is int val && val == 1);
 
@@ -564,6 +569,7 @@ namespace Services.Core.Services
                 ExePath = exePath,
                 Args = args,
                 WorkingDir = workingDir,
+                Description = description,
                 AutoRestart = autoRestart,
                 CreatedAt = createdAt,
                 UpdatedAt = DateTime.Now,

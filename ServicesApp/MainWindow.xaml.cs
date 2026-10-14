@@ -428,6 +428,7 @@ namespace ServicesApp
 
             AddRow("服务名称", service.Name);
             AddRow("服务 ID", service.Id, true);
+            AddRow("描述", service.Description);
             AddRow("状态", service.HasPid ? $"{service.Status} (PID {service.Pid})" : service.Status);
             AddRow("启动类型", GetStartupTypeText(service.StartupType));
             AddRow("失败自动重启", service.AutoRestart ? "已启用" : "未启用");

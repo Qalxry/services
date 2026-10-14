@@ -13,6 +13,7 @@ namespace Services.Core.Models
         private string _exePath = string.Empty;
         private string? _args;
         private string? _workingDir;
+        private string? _description;
         private bool _autoRestart;
         private ServiceStartupType _startupType = ServiceStartupType.Auto;
 
@@ -40,6 +41,12 @@ namespace Services.Core.Models
         {
             get => _workingDir;
             set => SetField(ref _workingDir, value);
+        }
+
+        public string? Description
+        {
+            get => _description;
+            set => SetField(ref _description, value);
         }
 
         public string Status
@@ -94,6 +101,7 @@ namespace Services.Core.Models
             ExePath = other.ExePath;
             Args = other.Args;
             WorkingDir = other.WorkingDir;
+            Description = other.Description;
             Status = other.Status;
             Pid = other.Pid;
             StartupType = other.StartupType;
@@ -123,6 +131,7 @@ namespace Services.Core.Models
         public string ExePath { get; set; } = string.Empty;
         public string? Args { get; set; }
         public string? WorkingDir { get; set; }
+        public string? Description { get; set; }
         public bool AutoRestart { get; set; }
         public ServiceStartupType StartupType { get; set; } = ServiceStartupType.Auto;
     }
