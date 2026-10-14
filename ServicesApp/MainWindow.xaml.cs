@@ -390,6 +390,82 @@ namespace ServicesApp
             logWindow.CenterOnScreen(_appWindow);
         }
 
+        private async void OnServiceItemClick(object sender, ItemClickEventArgs e)
+        {
+            if (e.ClickedItem is Service service)
+            {
+                await ShowServiceDetailsAsync(service);
+            }
+        }
+
+        private async Task ShowServiceDetailsAsync(Service service)
+        {
+            var grid = new Grid { RowSpacing = 10, ColumnSpacing = 16, MinWidth = 420 };
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            void AddRow(string label, string? value, bool monospace = false)
+            {
+                int row = grid.RowDefinitions.Count;
+                grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+                var labelBlock = new TextBlock { Text = label, Opacity = 0.6 };
+                Grid.SetRow(labelBlock, row);
+
+                var valueBlock = new TextBlock
+                {
+                    Text = string.IsNullOrWhiteSpace(value) ? "—" : value,
+                    TextWrapping = TextWrapping.Wrap,
+                    IsTextSelectionEnabled = true
+                };
+                if (monospace) valueBlock.FontFamily = new FontFamily("Consolas");
+                Grid.SetRow(valueBlock, row);
+                Grid.SetColumn(valueBlock, 1);
+
+                grid.Children.Add(labelBlock);
+                grid.Children.Add(valueBlock);
+            }
+
+            AddRow("服务名称", service.Name);
+            AddRow("服务 ID", service.Id, true);
+            AddRow("状态", service.HasPid ? $"{service.Status} (PID {service.Pid})" : service.Status);
+            AddRow("启动类型", GetStartupTypeText(service.StartupType));
+            AddRow("失败自动重启", service.AutoRestart ? "已启用" : "未启用");
+            AddRow("可执行文件路径", service.ExePath, true);
+            AddRow("工作目录", service.WorkingDir, true);
+            AddRow("启动参数", service.Args, true);
+            AddRow("创建时间", service.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss"));
+
+            var dialog = new ContentDialog
+            {
+                Title = "服务详情",
+                PrimaryButtonText = "编辑",
+                SecondaryButtonText = "查看日志",
+                CloseButtonText = "关闭",
+                DefaultButton = ContentDialogButton.Close,
+                Content = new ScrollViewer { Content = grid, VerticalScrollBarVisibility = ScrollBarVisibility.Auto },
+                XamlRoot = this.Content.XamlRoot
+            };
+
+            var result = await dialog.ShowAsync();
+            if (result == ContentDialogResult.Primary)
+            {
+                await ShowServiceEditorAsync(service);
+            }
+            else if (result == ContentDialogResult.Secondary)
+            {
+                ShowLogViewer(service.Id, service.Name);
+            }
+        }
+
+        private static string GetStartupTypeText(ServiceStartupType type) => type switch
+        {
+            ServiceStartupType.Auto => "开机自启",
+            ServiceStartupType.Manual => "手动启动",
+            ServiceStartupType.Disabled => "已禁用",
+            _ => "未知"
+        };
+
         private async void OnAddServiceClick(object sender, RoutedEventArgs e)
         {
             await ShowServiceEditorAsync(null);

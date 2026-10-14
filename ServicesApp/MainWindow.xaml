@@ -137,7 +137,7 @@
             </Grid>
 
             <!-- Service List -->
-            <ListView Grid.Row="1" ItemsSource="{Binding Services}" SelectionMode="None">
+            <ListView Grid.Row="1" ItemsSource="{Binding Services}" SelectionMode="None" IsItemClickEnabled="True" ItemClick="OnServiceItemClick">
                 <ListView.ItemContainerStyle>
                     <Style TargetType="ListViewItem">
                         <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
