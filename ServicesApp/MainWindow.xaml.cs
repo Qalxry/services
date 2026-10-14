@@ -110,22 +110,12 @@ namespace ServicesApp
             UpdateTimerState(presenter.State != OverlappedPresenterState.Minimized);
         }
 
-        private void OnTrayIconDoubleTapped(object sender, RoutedEventArgs e)
-        {
-            ShowWindow();
-        }
-
         private void OnWindowClosed(object sender, WindowEventArgs args)
         {
             if (_appWindow != null)
             {
                 _appWindow.Closing -= OnAppWindowClosing;
                 _appWindow.Changed -= OnAppWindowChanged;
-            }
-            
-            if (TrayIcon != null)
-            {
-                TrayIcon.DoubleTapped -= OnTrayIconDoubleTapped;
             }
             
             _refreshTimer?.Stop();
@@ -200,7 +190,12 @@ namespace ServicesApp
                 RootGrid.Children.Add(TrayIcon);
                 TrayIcon.ContextMenuMode = H.NotifyIcon.ContextMenuMode.PopupMenu;
                 TrayIcon.NoLeftClickDelay = true;
-                TrayIcon.DoubleTapped += OnTrayIconDoubleTapped;
+
+                // H.NotifyIcon 默认禁用 WinRT 事件（Tapped/DoubleTapped 不会触发），需通过命令响应托盘点击
+                var trayClickCommand = new XamlUICommand();
+                trayClickCommand.ExecuteRequested += (s, e) => DispatcherQueue.TryEnqueue(ShowWindow);
+                TrayIcon.LeftClickCommand = trayClickCommand;
+                TrayIcon.DoubleClickCommand = trayClickCommand;
 
                 var flyout = new MenuFlyout();
 
@@ -229,6 +224,10 @@ namespace ServicesApp
 
         public void ShowWindow()
         {
+            if (_appWindow.Presenter is OverlappedPresenter presenter && presenter.State == OverlappedPresenterState.Minimized)
+            {
+                presenter.Restore();
+            }
             _appWindow.Show();
             _appWindow.MoveInZOrderAtTop();
             this.Activate();
