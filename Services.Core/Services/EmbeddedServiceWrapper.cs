@@ -48,6 +48,11 @@ namespace Services.Core.Services
             }
         }
 
+        private void LogSystem(string message)
+        {
+            _logger?.Log(LogLine.Format(LogLineKind.System, message));
+        }
+
         private void InitLogger()
         {
             var logDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "windows_service_logs");
@@ -80,7 +85,7 @@ namespace Services.Core.Services
                 }
                 catch (Exception ex)
                 {
-                    _logger?.Log($"Error stopping process: {ex.Message}");
+                    LogSystem($"Error stopping process: {ex.Message}");
                 }
             }
 
@@ -136,7 +141,7 @@ namespace Services.Core.Services
             _restartCount++;
             if (_maxRestarts > 0 && _restartCount > _maxRestarts)
             {
-                _logger?.Log($"Max restarts ({_maxRestarts}) exceeded. Stopping.");
+                LogSystem($"Max restarts ({_maxRestarts}) exceeded. Stopping.");
                 return false;
             }
 
@@ -144,7 +149,7 @@ namespace Services.Core.Services
             _lastRestartTime = DateTime.Now;
 
             var limit = _maxRestarts > 0 ? _maxRestarts.ToString() : "unlimited";
-            _logger?.Log($"{action} {_restartCount}/{limit} in {delay}ms");
+            LogSystem($"{action} {_restartCount}/{limit} in {delay}ms");
             Task.Delay(delay).ContinueWith(_ =>
             {
                 if (!_isStopping) StartTargetProcess(config);
@@ -173,8 +178,8 @@ namespace Services.Core.Services
 
                 _process = new Process { StartInfo = psi };
 
-                _process.OutputDataReceived += (s, e) => { if (e.Data != null) _logger?.Log(e.Data); };
-                _process.ErrorDataReceived += (s, e) => { if (e.Data != null) _logger?.Log("ERROR: " + e.Data); };
+                _process.OutputDataReceived += (s, e) => { if (e.Data != null) _logger?.Log(LogLine.Format(LogLineKind.Stdout, e.Data)); };
+                _process.ErrorDataReceived += (s, e) => { if (e.Data != null) _logger?.Log(LogLine.Format(LogLineKind.Stderr, e.Data)); };
 
                 if (!_process.Start())
                 {
@@ -188,13 +193,13 @@ namespace Services.Core.Services
                 _process.Exited += (s, e) =>
                 {
                     int exitCode = _process.ExitCode;
-                    _logger?.Log($"Process exited (code: {exitCode})");
+                    LogSystem($"Process exited (code: {exitCode})");
 
                     if (_isStopping) return;
 
                     if (!_autoRestart || exitCode == 0)
                     {
-                        _logger?.Log(exitCode == 0 ? "Normal exit, not restarting" : "AutoRestart disabled");
+                        LogSystem(exitCode == 0 ? "Normal exit, not restarting" : "AutoRestart disabled");
                         Stop();
                         return;
                     }
@@ -207,13 +212,13 @@ namespace Services.Core.Services
             }
             catch (Exception ex)
             {
-                _logger?.Log($"Failed to start: {ex.Message}");
+                LogSystem($"Failed to start: {ex.Message}");
 
                 // 处理文件不存在错误
                 if (ex is System.ComponentModel.Win32Exception win32Ex && 
                     (win32Ex.NativeErrorCode == 2 || win32Ex.NativeErrorCode == 3))
                 {
-                    _logger?.Log("FATAL: Executable not found. Service stopped.");
+                    LogSystem("FATAL: Executable not found. Service stopped.");
                     Stop();
                     return;
                 }

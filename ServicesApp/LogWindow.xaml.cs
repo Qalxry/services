@@ -5,7 +5,9 @@ using Microsoft.UI;
 using System;
 using System.IO;
 using System.Linq;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using Services.Core.Helpers;
 using Services.Core.Services;
 using WinRT.Interop;
 
@@ -18,7 +20,9 @@ namespace ServicesApp
         private DispatcherTimer? _timer;
         private AppWindow _appWindow;
 
-        private ObservableCollection<string> _logEntries = new();
+        // 当前文件中最近的日志行（未过滤）与按 stdout/stderr 过滤后显示的行
+        private readonly List<LogEntry> _allEntries = new();
+        private readonly ObservableCollection<LogEntry> _logEntries = new();
         private long _lastPosition = 0;
         private string? _currentLogPath;
         private const int MaxLogLines = 3000;
@@ -47,6 +51,7 @@ namespace ServicesApp
             _timer.Tick += OnTimerTick;
 
             this.Closed += OnWindowClosed;
+            RootGrid.ActualThemeChanged += OnActualThemeChanged;
 
             LoadLog(true);
             _timer.Start();
@@ -65,7 +70,65 @@ namespace ServicesApp
                 _timer.Stop();
                 _timer = null;
             }
+            RootGrid.ActualThemeChanged -= OnActualThemeChanged;
             this.Closed -= OnWindowClosed;
+        }
+
+        private void OnActualThemeChanged(FrameworkElement sender, object args)
+        {
+            // 重新生成列表项以按新主题配色渲染 ANSI 颜色
+            RebuildVisibleEntries();
+        }
+
+        private void OnStreamFilterChanged(object sender, RoutedEventArgs e)
+        {
+            RebuildVisibleEntries();
+        }
+
+        private bool ShouldShow(LogEntry entry)
+        {
+            return entry.Kind switch
+            {
+                LogLineKind.Stdout => StdoutCheck?.IsChecked != false,
+                LogLineKind.Stderr => StderrCheck?.IsChecked != false,
+                _ => true
+            };
+        }
+
+        private void RebuildVisibleEntries()
+        {
+            _logEntries.Clear();
+            foreach (var entry in _allEntries)
+            {
+                if (ShouldShow(entry)) _logEntries.Add(entry);
+            }
+
+            if (_logEntries.Count > 0)
+            {
+                LogListView.ScrollIntoView(_logEntries[_logEntries.Count - 1]);
+            }
+        }
+
+        private void ClearEntries()
+        {
+            _allEntries.Clear();
+            _logEntries.Clear();
+        }
+
+        private void AddEntry(LogEntry entry)
+        {
+            _allEntries.Add(entry);
+            if (_allEntries.Count > MaxLogLines)
+            {
+                var removed = _allEntries[0];
+                _allEntries.RemoveAt(0);
+                if (_logEntries.Count > 0 && ReferenceEquals(_logEntries[0], removed))
+                {
+                    _logEntries.RemoveAt(0);
+                }
+            }
+
+            if (ShouldShow(entry)) _logEntries.Add(entry);
         }
 
         private void LoadLog(bool forceReload)
@@ -77,14 +140,14 @@ namespace ServicesApp
                 // 文件轮转或强制刷新
                 if (path != _currentLogPath || forceReload)
                 {
-                    _logEntries.Clear();
+                    ClearEntries();
                     _lastPosition = 0;
                     _currentLogPath = path;
                 }
 
                 if (string.IsNullOrEmpty(_currentLogPath) || !File.Exists(_currentLogPath))
                 {
-                    if (_logEntries.Count == 0) _logEntries.Add($"等待日志生成... (路径: {_logManager.GetLogDirectory()})");
+                    if (_allEntries.Count == 0) AddEntry(new LogEntry(LogLineKind.System, $"等待日志生成... (路径: {_logManager.GetLogDirectory()})"));
                     return;
                 }
 
@@ -93,7 +156,7 @@ namespace ServicesApp
                 // 文件被截断或轮转
                 if (fs.Length < _lastPosition)
                 {
-                    _logEntries.Clear();
+                    ClearEntries();
                     _lastPosition = 0;
                 }
 
@@ -107,12 +170,7 @@ namespace ServicesApp
                     string? line;
                     while ((line = reader.ReadLine()) != null)
                     {
-                        _logEntries.Add(line);
-                        
-                        if (_logEntries.Count > MaxLogLines)
-                        {
-                            _logEntries.RemoveAt(0);
-                        }
+                        AddEntry(LogEntry.Parse(line));
                     }
                     _lastPosition = fs.Position;
 
