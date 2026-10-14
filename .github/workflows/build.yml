@@ -1,0 +1,43 @@
+name: 构建测试版 (Build)
+
+on:
+  push:
+    branches:
+      - '**'
+    paths-ignore:
+      - '**.md'
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: 编译 Windows 应用
+    runs-on: windows-latest
+
+    steps:
+    - name: 检出代码 (Checkout)
+      uses: actions/checkout@v7
+
+    - name: 配置 MSBuild
+      uses: microsoft/setup-msbuild@v3
+
+    - name: 还原依赖 (Restore)
+      run: msbuild Services.sln /t:Restore /p:Configuration=Release
+
+    - name: 编译并发布单文件版 (Build & Publish Single File)
+      run: |
+        msbuild ServicesApp/ServicesApp.csproj `
+          /t:Publish `
+          /p:Configuration=Release `
+          /p:RuntimeIdentifier=win-x64 `
+          /p:PublishSingleFile=true `
+          /p:SelfContained=true `
+          /p:PublishDir=${{ github.workspace }}\publish-single\ `
+          /p:DebugType=none
+
+    - name: 上传构建产物 (Upload Artifact)
+      uses: actions/upload-artifact@v4
+      with:
+        name: ServicesApp-win-x64-${{ github.sha }}
+        path: publish-single/
+        retention-days: 14
