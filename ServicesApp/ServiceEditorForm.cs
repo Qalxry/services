@@ -50,17 +50,17 @@ namespace ServicesApp
             Grid.SetColumn(_exeBox, 0); Grid.SetRow(_exeBox, 1);
             Grid.SetColumnSpan(_exeBox, 2);
 
-            // Args
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            _argsBox = new TextBox { Header = "启动参数 (可选)", PlaceholderText = "--config config.json" };
-            Grid.SetColumn(_argsBox, 0); Grid.SetRow(_argsBox, 2);
-            Grid.SetColumnSpan(_argsBox, 2);
-
             // WorkDir
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             _workDirBox = new TextBox { Header = "工作目录 (可选)", PlaceholderText = "默认为程序所在目录" };
-            Grid.SetColumn(_workDirBox, 0); Grid.SetRow(_workDirBox, 3);
+            Grid.SetColumn(_workDirBox, 0); Grid.SetRow(_workDirBox, 2);
             Grid.SetColumnSpan(_workDirBox, 2);
+
+            // Args
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            _argsBox = new TextBox { Header = "启动参数 (可选)", PlaceholderText = "--config config.json" };
+            Grid.SetColumn(_argsBox, 0); Grid.SetRow(_argsBox, 3);
+            Grid.SetColumnSpan(_argsBox, 2);
 
             // Auto Restart & Browse Button
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -86,8 +86,8 @@ namespace ServicesApp
             grid.Children.Add(_nameBox);
             grid.Children.Add(_startupBox);
             grid.Children.Add(_exeBox);
-            grid.Children.Add(_argsBox);
             grid.Children.Add(_workDirBox);
+            grid.Children.Add(_argsBox);
             grid.Children.Add(_autoRestartCheck);
             grid.Children.Add(browseBtn);
             grid.Children.Add(_errorText);
