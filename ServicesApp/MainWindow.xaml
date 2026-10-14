@@ -76,6 +76,12 @@
                     </Setter.Value>
                 </Setter>
             </Style>
+
+            <Style x:Key="SortHeaderButtonStyle" TargetType="Button" BasedOn="{StaticResource ActionIconButtonStyle}">
+                <Setter Property="Padding" Value="4,2"/>
+                <Setter Property="Margin" Value="-4,0,0,0"/>
+                <Setter Property="HorizontalAlignment" Value="Left"/>
+            </Style>
         </Grid.Resources>
         
         <Grid.RowDefinitions>
@@ -130,9 +136,25 @@
                     <ColumnDefinition Width="3*"/>
                     <ColumnDefinition Width="176"/>
                 </Grid.ColumnDefinitions>
-                <TextBlock Text="服务名称" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.6"/>
-                <TextBlock Grid.Column="1" Text="状态" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.6"/>
-                <TextBlock Grid.Column="2" Text="程序路径" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.6"/>
+                <!-- 点击列头切换排序：升序 → 降序 → 默认（添加顺序） -->
+                <Button Grid.Column="0" Tag="Name" Click="OnSortHeaderClick" Style="{StaticResource SortHeaderButtonStyle}" ToolTipService.ToolTip="按服务名称排序（再次点击切换降序 / 默认顺序）">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <TextBlock Text="服务名称" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.6"/>
+                        <FontIcon x:Name="NameSortIcon" Glyph="&#xE8CB;" FontSize="10" Opacity="0.3"/>
+                    </StackPanel>
+                </Button>
+                <Button Grid.Column="1" Tag="Status" Click="OnSortHeaderClick" Style="{StaticResource SortHeaderButtonStyle}" ToolTipService.ToolTip="按状态排序（再次点击切换降序 / 默认顺序）">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <TextBlock Text="状态" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.6"/>
+                        <FontIcon x:Name="StatusSortIcon" Glyph="&#xE8CB;" FontSize="10" Opacity="0.3"/>
+                    </StackPanel>
+                </Button>
+                <Button Grid.Column="2" Tag="Path" Click="OnSortHeaderClick" Style="{StaticResource SortHeaderButtonStyle}" ToolTipService.ToolTip="按程序路径排序（再次点击切换降序 / 默认顺序）">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <TextBlock Text="程序路径" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.6"/>
+                        <FontIcon x:Name="PathSortIcon" Glyph="&#xE8CB;" FontSize="10" Opacity="0.3"/>
+                    </StackPanel>
+                </Button>
                 <TextBlock Grid.Column="3" Text="操作" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.6" HorizontalAlignment="Right" Margin="0,0,8,0"/>
             </Grid>
 
