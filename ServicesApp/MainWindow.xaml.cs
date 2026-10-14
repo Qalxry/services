@@ -431,7 +431,7 @@ namespace ServicesApp
             AddRow("描述", service.Description);
             AddRow("状态", service.HasPid ? $"{service.Status} (PID {service.Pid})" : service.Status);
             AddRow("启动类型", GetStartupTypeText(service.StartupType));
-            AddRow("失败自动重启", service.AutoRestart ? "已启用" : "未启用");
+            AddRow("失败自动重启", service.AutoRestart ? GetRestartPolicyText(service) : "未启用");
             AddRow("可执行文件路径", service.ExePath, true);
             AddRow("工作目录", service.WorkingDir, true);
             AddRow("启动参数", service.Args, true);
@@ -457,6 +457,13 @@ namespace ServicesApp
             {
                 ShowLogViewer(service.Id, service.Name);
             }
+        }
+
+        private static string GetRestartPolicyText(Service service)
+        {
+            var maxText = service.MaxRestarts > 0 ? $"最多 {service.MaxRestarts} 次" : "不限次数";
+            var backoffText = service.RestartBackoff ? "，指数退避" : "";
+            return $"已启用（延迟 {service.RestartDelaySeconds} 秒{backoffText}，{maxText}，{service.RestartResetMinutes} 分钟后重置计数）";
         }
 
         private static string GetStartupTypeText(ServiceStartupType type) => type switch

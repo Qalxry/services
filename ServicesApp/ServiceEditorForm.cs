@@ -19,6 +19,11 @@ namespace ServicesApp
         private readonly TextBox _workDirBox;
         private readonly TextBox _descriptionBox;
         private readonly CheckBox _autoRestartCheck;
+        private readonly NumberBox _restartDelayBox;
+        private readonly NumberBox _maxRestartsBox;
+        private readonly NumberBox _restartResetBox;
+        private readonly CheckBox _restartBackoffCheck;
+        private readonly FrameworkElement _restartPolicyPanel;
         private readonly TextBlock _errorText;
 
         public FrameworkElement View { get; }
@@ -96,15 +101,51 @@ namespace ServicesApp
             _autoRestartCheck = new CheckBox { Content = "失败自动重启", IsChecked = false, VerticalAlignment = VerticalAlignment.Center };
             Grid.SetColumn(_autoRestartCheck, 0); Grid.SetRow(_autoRestartCheck, 5);
 
+            // Restart policy (visible when auto restart is enabled)
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            _restartDelayBox = CreateNumberBox("重启延迟 (秒)", 1, 3600, RestartPolicyDefaults.DelaySeconds);
+            _maxRestartsBox = CreateNumberBox("最大重启次数", 0, 1000, RestartPolicyDefaults.MaxRestarts);
+            _maxRestartsBox.Description = "0 表示不限制";
+            _restartResetBox = CreateNumberBox("计数重置 (分钟)", 1, 1440, RestartPolicyDefaults.ResetMinutes);
+            _restartResetBox.Description = "超过该时间未再失败则重新计数";
+            _restartBackoffCheck = new CheckBox { Content = "指数退避（每次重启延迟翻倍，最多 16 倍）", IsChecked = RestartPolicyDefaults.Backoff };
+
+            var policyGrid = new Grid { ColumnSpacing = 12, RowSpacing = 8 };
+            for (int i = 0; i < 3; i++)
+                policyGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            policyGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            policyGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            Grid.SetColumn(_maxRestartsBox, 1);
+            Grid.SetColumn(_restartResetBox, 2);
+            Grid.SetRow(_restartBackoffCheck, 1);
+            Grid.SetColumnSpan(_restartBackoffCheck, 3);
+            policyGrid.Children.Add(_restartDelayBox);
+            policyGrid.Children.Add(_maxRestartsBox);
+            policyGrid.Children.Add(_restartResetBox);
+            policyGrid.Children.Add(_restartBackoffCheck);
+
+            _restartPolicyPanel = new Border
+            {
+                Child = policyGrid,
+                Padding = new Thickness(12),
+                CornerRadius = new CornerRadius(4),
+                Background = GetThemeBrush("CardBackgroundFillColorSecondaryBrush"),
+                Visibility = Visibility.Collapsed
+            };
+            Grid.SetColumn(_restartPolicyPanel, 0); Grid.SetRow(_restartPolicyPanel, 6);
+            Grid.SetColumnSpan(_restartPolicyPanel, 2);
+            _autoRestartCheck.Checked += (s, e) => _restartPolicyPanel.Visibility = Visibility.Visible;
+            _autoRestartCheck.Unchecked += (s, e) => _restartPolicyPanel.Visibility = Visibility.Collapsed;
+
             // Validation message
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             _errorText = new TextBlock
             {
-                Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["SystemFillColorCriticalBrush"],
+                Foreground = GetThemeBrush("SystemFillColorCriticalBrush"),
                 TextWrapping = TextWrapping.Wrap,
                 Visibility = Visibility.Collapsed
             };
-            Grid.SetColumn(_errorText, 0); Grid.SetRow(_errorText, 6);
+            Grid.SetColumn(_errorText, 0); Grid.SetRow(_errorText, 7);
             Grid.SetColumnSpan(_errorText, 2);
 
             // Add children
@@ -115,6 +156,7 @@ namespace ServicesApp
             grid.Children.Add(_argsBox);
             grid.Children.Add(_descriptionBox);
             grid.Children.Add(_autoRestartCheck);
+            grid.Children.Add(_restartPolicyPanel);
             grid.Children.Add(_errorText);
 
             if (existing != null)
@@ -125,6 +167,11 @@ namespace ServicesApp
                 _workDirBox.Text = existing.WorkingDir ?? "";
                 _descriptionBox.Text = existing.Description ?? "";
                 _autoRestartCheck.IsChecked = existing.AutoRestart;
+                _restartPolicyPanel.Visibility = existing.AutoRestart ? Visibility.Visible : Visibility.Collapsed;
+                _restartDelayBox.Value = existing.RestartDelaySeconds;
+                _maxRestartsBox.Value = existing.MaxRestarts;
+                _restartResetBox.Value = existing.RestartResetMinutes;
+                _restartBackoffCheck.IsChecked = existing.RestartBackoff;
                 _startupBox.SelectedIndex = (int)existing.StartupType - (int)ServiceStartupType.Auto;
             }
             else
@@ -163,6 +210,32 @@ namespace ServicesApp
             row.Children.Add(box);
             row.Children.Add(button);
             return row;
+        }
+
+        private static Microsoft.UI.Xaml.Media.Brush? GetThemeBrush(string key)
+        {
+            return Application.Current.Resources.TryGetValue(key, out var value) ? value as Microsoft.UI.Xaml.Media.Brush : null;
+        }
+
+        private static NumberBox CreateNumberBox(string header, int min, int max, int value)
+        {
+            return new NumberBox
+            {
+                Header = header,
+                Minimum = min,
+                Maximum = max,
+                Value = value,
+                SmallChange = 1,
+                LargeChange = 10,
+                SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact,
+                ValidationMode = NumberBoxValidationMode.InvalidInputOverwritten
+            };
+        }
+
+        private static int ReadNumber(NumberBox box, int fallback)
+        {
+            if (double.IsNaN(box.Value)) return fallback;
+            return (int)Math.Clamp(Math.Round(box.Value), box.Minimum, box.Maximum);
         }
 
         private void OnPickExe()
@@ -218,6 +291,10 @@ namespace ServicesApp
                 WorkingDir = _workDirBox.Text.Trim(),
                 Description = NormalizeLineEndings(_descriptionBox.Text).Trim(),
                 AutoRestart = _autoRestartCheck.IsChecked ?? false,
+                RestartDelaySeconds = ReadNumber(_restartDelayBox, RestartPolicyDefaults.DelaySeconds),
+                MaxRestarts = ReadNumber(_maxRestartsBox, RestartPolicyDefaults.MaxRestarts),
+                RestartResetMinutes = ReadNumber(_restartResetBox, RestartPolicyDefaults.ResetMinutes),
+                RestartBackoff = _restartBackoffCheck.IsChecked ?? RestartPolicyDefaults.Backoff,
                 StartupType = (ServiceStartupType)(_startupBox.SelectedIndex + (int)ServiceStartupType.Auto)
             };
         }

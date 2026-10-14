@@ -81,6 +81,10 @@ namespace Services.Core.Services
                 Description = s.Description,
                 StartupType = s.StartupType,
                 AutoRestart = s.AutoRestart,
+                RestartDelaySeconds = s.RestartDelaySeconds,
+                MaxRestarts = s.MaxRestarts,
+                RestartResetMinutes = s.RestartResetMinutes,
+                RestartBackoff = s.RestartBackoff,
                 CreatedAt = s.CreatedAt,
                 UpdatedAt = s.UpdatedAt
             };
@@ -277,6 +281,10 @@ namespace Services.Core.Services
             paramsKey.SetValue("DisplayName", config.Name);
             paramsKey.SetValue("Description", config.Description ?? "");
             paramsKey.SetValue("AutoRestart", config.AutoRestart ? 1 : 0);
+            paramsKey.SetValue("RestartDelaySeconds", config.RestartDelaySeconds, RegistryValueKind.DWord);
+            paramsKey.SetValue("MaxRestarts", config.MaxRestarts, RegistryValueKind.DWord);
+            paramsKey.SetValue("RestartResetMinutes", config.RestartResetMinutes, RegistryValueKind.DWord);
+            paramsKey.SetValue("RestartBackoff", config.RestartBackoff ? 1 : 0, RegistryValueKind.DWord);
         }
 
         private static string BuildServiceDescription(ServiceConfig config)
@@ -551,6 +559,10 @@ namespace Services.Core.Services
             var description = paramsKey.GetValue("Description") as string;
             var autoRestartVal = paramsKey.GetValue("AutoRestart");
             bool autoRestart = (autoRestartVal is int val && val == 1);
+            var restartDelaySeconds = paramsKey.GetValue("RestartDelaySeconds") is int delayVal ? delayVal : RestartPolicyDefaults.DelaySeconds;
+            var maxRestarts = paramsKey.GetValue("MaxRestarts") is int maxVal ? maxVal : RestartPolicyDefaults.MaxRestarts;
+            var restartResetMinutes = paramsKey.GetValue("RestartResetMinutes") is int resetVal ? resetVal : RestartPolicyDefaults.ResetMinutes;
+            var restartBackoff = paramsKey.GetValue("RestartBackoff") is int backoffVal ? backoffVal == 1 : RestartPolicyDefaults.Backoff;
 
             var createdAtStr = paramsKey.GetValue("CreatedAt") as string;
             DateTime createdAt = DateTime.Now;
@@ -571,6 +583,10 @@ namespace Services.Core.Services
                 WorkingDir = workingDir,
                 Description = description,
                 AutoRestart = autoRestart,
+                RestartDelaySeconds = restartDelaySeconds,
+                MaxRestarts = maxRestarts,
+                RestartResetMinutes = restartResetMinutes,
+                RestartBackoff = restartBackoff,
                 CreatedAt = createdAt,
                 UpdatedAt = DateTime.Now,
                 StartupType = startupType,

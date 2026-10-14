@@ -89,6 +89,11 @@ namespace Services.Core.Models
             set => SetField(ref _autoRestart, value);
         }
 
+        public int RestartDelaySeconds { get; set; } = RestartPolicyDefaults.DelaySeconds;
+        public int MaxRestarts { get; set; } = RestartPolicyDefaults.MaxRestarts;
+        public int RestartResetMinutes { get; set; } = RestartPolicyDefaults.ResetMinutes;
+        public bool RestartBackoff { get; set; } = RestartPolicyDefaults.Backoff;
+
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }
 
@@ -106,6 +111,10 @@ namespace Services.Core.Models
             Pid = other.Pid;
             StartupType = other.StartupType;
             AutoRestart = other.AutoRestart;
+            RestartDelaySeconds = other.RestartDelaySeconds;
+            MaxRestarts = other.MaxRestarts;
+            RestartResetMinutes = other.RestartResetMinutes;
+            RestartBackoff = other.RestartBackoff;
             CreatedAt = other.CreatedAt;
             UpdatedAt = other.UpdatedAt;
         }
@@ -133,7 +142,26 @@ namespace Services.Core.Models
         public string? WorkingDir { get; set; }
         public string? Description { get; set; }
         public bool AutoRestart { get; set; }
+        public int RestartDelaySeconds { get; set; } = RestartPolicyDefaults.DelaySeconds;
+        public int MaxRestarts { get; set; } = RestartPolicyDefaults.MaxRestarts;
+        public int RestartResetMinutes { get; set; } = RestartPolicyDefaults.ResetMinutes;
+        public bool RestartBackoff { get; set; } = RestartPolicyDefaults.Backoff;
         public ServiceStartupType StartupType { get; set; } = ServiceStartupType.Auto;
+    }
+
+    /// <summary>
+    /// 失败自动重启策略的默认值（未配置时与旧版本行为一致）
+    /// </summary>
+    public static class RestartPolicyDefaults
+    {
+        /// <summary>首次重启前的等待时间（秒）</summary>
+        public const int DelaySeconds = 5;
+        /// <summary>计数窗口内允许的最大重启次数，0 表示不限制</summary>
+        public const int MaxRestarts = 5;
+        /// <summary>距上次重启超过该时间（分钟）则重置重启计数</summary>
+        public const int ResetMinutes = 10;
+        /// <summary>是否启用指数退避（每次重启延迟翻倍，最多 16 倍）</summary>
+        public const bool Backoff = true;
     }
 
     public enum ServiceStartupType

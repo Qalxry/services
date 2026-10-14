@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Win32;
 using Services.Core.Helpers;
+using Services.Core.Models;
 
 namespace Services.Core.Services
 {
@@ -15,11 +16,13 @@ namespace Services.Core.Services
         private string _serviceName;
         private AsyncLogger? _logger;
         private bool _autoRestart = false;
-        private int _restartDelayMs = 5000;
+        private int _restartDelayMs = RestartPolicyDefaults.DelaySeconds * 1000;
+        private int _maxRestarts = RestartPolicyDefaults.MaxRestarts;
+        private int _restartResetMinutes = RestartPolicyDefaults.ResetMinutes;
+        private bool _restartBackoff = RestartPolicyDefaults.Backoff;
         private bool _isStopping = false;
         private int _restartCount = 0;
         private DateTime _lastRestartTime = DateTime.MinValue;
-        private const int MaxRestarts = 5;
 
         public EmbeddedServiceWrapper(string serviceName)
         {
@@ -32,7 +35,7 @@ namespace Services.Core.Services
             try
             {
                 var config = LoadConfig();
-                _autoRestart = LoadAutoRestart();
+                LoadRestartPolicy();
 
                 InitLogger();
                 StartTargetProcess(config);
@@ -102,19 +105,51 @@ namespace Services.Core.Services
             return (exePath, ServiceUtils.NormalizeArgs(args), workingDir ?? "");
         }
 
-        private bool LoadAutoRestart()
+        private void LoadRestartPolicy()
         {
             try
             {
                 using var key = Registry.LocalMachine.OpenSubKey($@"SYSTEM\CurrentControlSet\Services\{_serviceName}\Parameters");
-                if (key != null)
-                {
-                    var val = key.GetValue("AutoRestart");
-                    if (val is int v) return v == 1;
-                }
+                if (key == null) return;
+
+                _autoRestart = key.GetValue("AutoRestart") is int v && v == 1;
+                if (key.GetValue("RestartDelaySeconds") is int delay && delay > 0)
+                    _restartDelayMs = Math.Min(delay, 3600) * 1000;
+                if (key.GetValue("MaxRestarts") is int max && max >= 0)
+                    _maxRestarts = max;
+                if (key.GetValue("RestartResetMinutes") is int reset && reset > 0)
+                    _restartResetMinutes = reset;
+                if (key.GetValue("RestartBackoff") is int backoff)
+                    _restartBackoff = backoff == 1;
             }
             catch { }
-            return false;
+        }
+
+        /// <summary>
+        /// 按重启策略安排下一次重启。超过最大重启次数时返回 false。
+        /// </summary>
+        private bool TryScheduleRestart((string ExePath, string Args, string WorkingDir) config, string action)
+        {
+            if ((DateTime.Now - _lastRestartTime).TotalMinutes > _restartResetMinutes)
+                _restartCount = 0;
+
+            _restartCount++;
+            if (_maxRestarts > 0 && _restartCount > _maxRestarts)
+            {
+                _logger?.Log($"Max restarts ({_maxRestarts}) exceeded. Stopping.");
+                return false;
+            }
+
+            int delay = _restartBackoff ? _restartDelayMs << Math.Min(_restartCount - 1, 4) : _restartDelayMs;
+            _lastRestartTime = DateTime.Now;
+
+            var limit = _maxRestarts > 0 ? _maxRestarts.ToString() : "unlimited";
+            _logger?.Log($"{action} {_restartCount}/{limit} in {delay}ms");
+            Task.Delay(delay).ContinueWith(_ =>
+            {
+                if (!_isStopping) StartTargetProcess(config);
+            });
+            return true;
         }
 
         private void StartTargetProcess((string ExePath, string Args, string WorkingDir) config)
@@ -164,24 +199,10 @@ namespace Services.Core.Services
                         return;
                     }
 
-                    if ((DateTime.Now - _lastRestartTime).TotalMinutes > 10)
-                        _restartCount = 0;
-
-                    if (++_restartCount > MaxRestarts)
+                    if (!TryScheduleRestart(config, "Restart"))
                     {
-                        _logger?.Log($"Max restarts ({MaxRestarts}) exceeded. Stopping.");
                         Stop();
-                        return;
                     }
-
-                    int delay = _restartDelayMs << Math.Min(_restartCount - 1, 4);
-                    _lastRestartTime = DateTime.Now;
-
-                    _logger?.Log($"Restart {_restartCount}/{MaxRestarts} in {delay}ms");
-                    Task.Delay(delay).ContinueWith(_ =>
-                    {
-                        if (!_isStopping) StartTargetProcess(config);
-                    });
                 };
             }
             catch (Exception ex)
@@ -199,23 +220,7 @@ namespace Services.Core.Services
 
                 if (!_autoRestart) throw;
 
-                if ((DateTime.Now - _lastRestartTime).TotalMinutes > 10)
-                    _restartCount = 0;
-
-                if (++_restartCount > MaxRestarts)
-                {
-                    _logger?.Log($"Max restarts ({MaxRestarts}) exceeded. Stopping.");
-                    throw;
-                }
-
-                int delay = _restartDelayMs << Math.Min(_restartCount - 1, 4);
-                _lastRestartTime = DateTime.Now;
-
-                _logger?.Log($"Retry {_restartCount}/{MaxRestarts} in {delay}ms");
-                Task.Delay(delay).ContinueWith(_ =>
-                {
-                    if (!_isStopping) StartTargetProcess(config);
-                });
+                if (!TryScheduleRestart(config, "Retry")) throw;
             }
         }
     }
