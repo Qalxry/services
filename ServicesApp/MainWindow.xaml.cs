@@ -28,6 +28,7 @@ namespace ServicesApp
         private bool _isRefreshRunning = false;
         private bool _isVisibleRefreshMode = true;
         private bool _isLoadServicesRunning = false;
+        private bool _isReloadOnActivateRunning = false;
         private System.Threading.Timer? _logCleanupTimer;
         private CancellationTokenSource? _cleanupCts;
         private RegisteredWaitHandle? _showWindowWait;
@@ -103,6 +104,30 @@ namespace ServicesApp
             InitializeTrayIcon();
             await _serviceManager.InitializeAsync();
             LoadServices();
+            this.Activated += OnWindowReactivated;
+        }
+
+        /// <summary>
+        /// 窗口重新获得焦点时从注册表重新加载服务，以显示命令行（servicesctl）或其他途径所做的修改
+        /// </summary>
+        private async void OnWindowReactivated(object sender, WindowActivatedEventArgs args)
+        {
+            if (args.WindowActivationState == WindowActivationState.Deactivated || _isReloadOnActivateRunning) return;
+
+            _isReloadOnActivateRunning = true;
+            try
+            {
+                await _serviceManager.InitializeAsync();
+                LoadServices(true);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Reload on activate failed: {ex}");
+            }
+            finally
+            {
+                _isReloadOnActivateRunning = false;
+            }
         }
 
         private void OnAppWindowClosing(AppWindow sender, AppWindowClosingEventArgs args)
@@ -130,6 +155,7 @@ namespace ServicesApp
                 _appWindow.Changed -= OnAppWindowChanged;
             }
             
+            this.Activated -= OnWindowReactivated;
             _showWindowWait?.Unregister(null);
             _showWindowWait = null;
 
