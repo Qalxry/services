@@ -224,7 +224,7 @@
                                     <FontIcon Glyph="&#xE70F;" FontSize="14"/>
                                 </Button>
                                 <Button Click="OnLogsClick" Tag="{Binding Id}" ToolTipService.ToolTip="日志" Style="{StaticResource ActionIconButtonStyle}">
-                                    <FontIcon Glyph="&#xE8A5;" FontSize="14"/>
+                                    <FontIcon Glyph="&#xF000;" FontSize="14"/>
                                 </Button>
                                 <Button Click="OnDeleteClick" Tag="{Binding Id}" ToolTipService.ToolTip="删除" Style="{StaticResource ActionIconButtonStyle}">
                                     <FontIcon Glyph="&#xE74D;" FontSize="14" Foreground="{ThemeResource SystemFillColorCriticalBrush}"/>

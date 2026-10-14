@@ -52,14 +52,14 @@ namespace ServicesApp
             // Exe Path | File picker
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             _exeBox = new TextBox { Header = "可执行文件路径", PlaceholderText = "C:\\Path\\To\\App.exe" };
-            var exeRow = CreatePickerRow(_exeBox, "选择可执行文件", OnPickExe);
+            var exeRow = CreatePickerRow(_exeBox, "\uE8E5", "选择可执行文件", OnPickExe);
             Grid.SetColumn(exeRow, 0); Grid.SetRow(exeRow, 1);
             Grid.SetColumnSpan(exeRow, 2);
 
             // WorkDir | Folder picker
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             _workDirBox = new TextBox { Header = "工作目录 (可选)", PlaceholderText = "默认为程序所在目录" };
-            var workDirRow = CreatePickerRow(_workDirBox, "选择工作目录", OnPickWorkDir);
+            var workDirRow = CreatePickerRow(_workDirBox, "\uE838", "选择工作目录", OnPickWorkDir);
             Grid.SetColumn(workDirRow, 0); Grid.SetRow(workDirRow, 2);
             Grid.SetColumnSpan(workDirRow, 2);
 
@@ -188,9 +188,9 @@ namespace ServicesApp
         }
 
         /// <summary>
-        /// 输入框 + 同行右侧的文件夹图标按钮
+        /// 输入框 + 同行右侧的选择按钮（文件：OpenFile 图标，文件夹：FolderOpen 图标）
         /// </summary>
-        private static Grid CreatePickerRow(TextBox box, string tooltip, Action onPick)
+        private static Grid CreatePickerRow(TextBox box, string glyph, string tooltip, Action onPick)
         {
             var row = new Grid { ColumnSpacing = 8 };
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -198,7 +198,7 @@ namespace ServicesApp
 
             var button = new Button
             {
-                Content = new FontIcon { Glyph = "\uE8B7", FontSize = 16 },
+                Content = new FontIcon { Glyph = glyph, FontSize = 16 },
                 VerticalAlignment = VerticalAlignment.Bottom,
                 MinHeight = 32
             };

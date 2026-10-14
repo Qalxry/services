@@ -33,7 +33,7 @@
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
             <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                <FontIcon Glyph="&#xE8A5;" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                <FontIcon Glyph="&#xF000;" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                 <TextBlock x:Name="TitleText" Text="日志" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.8"/>
             </StackPanel>
         </Grid>
@@ -87,7 +87,7 @@
                 </Button>
                 <Button x:Name="OpenFolderButton" Click="OnOpenFolderClick" ToolTipService.ToolTip="打开所在文件夹">
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                        <FontIcon Glyph="&#xE8B7;" FontSize="12"/>
+                        <FontIcon Glyph="&#xE838;" FontSize="12"/>
                         <TextBlock Text="打开日志文件"/>
                     </StackPanel>
                 </Button>
