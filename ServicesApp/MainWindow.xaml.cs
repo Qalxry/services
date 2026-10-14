@@ -282,8 +282,7 @@ namespace ServicesApp
                     }
                     else
                     {
-                        existing.Status = item.Status;
-                        existing.Pid = item.Pid;
+                        existing.CopyFrom(item);
                     }
                 }
 
@@ -393,112 +392,51 @@ namespace ServicesApp
 
         private async void OnAddServiceClick(object sender, RoutedEventArgs e)
         {
-            var addServiceDialog = new ContentDialog
+            await ShowServiceEditorAsync(null);
+        }
+
+        private async void OnEditClick(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button btn && btn.Tag is string id)
             {
-                Title = "添加新服务",
-                PrimaryButtonText = "创建",
+                var service = Services.FirstOrDefault(s => s.Id == id);
+                if (service != null)
+                {
+                    await ShowServiceEditorAsync(service);
+                }
+            }
+        }
+
+        /// <summary>
+        /// 显示添加/编辑服务对话框。existing 为 null 时为添加模式。
+        /// </summary>
+        private async Task ShowServiceEditorAsync(Service? existing)
+        {
+            var hwnd = WindowNative.GetWindowHandle(this);
+            var form = new ServiceEditorForm(hwnd, existing);
+
+            var dialog = new ContentDialog
+            {
+                Title = existing == null ? "添加新服务" : $"编辑服务 - {existing.Name}",
+                PrimaryButtonText = existing == null ? "创建" : "保存",
                 CloseButtonText = "取消",
+                DefaultButton = ContentDialogButton.Primary,
+                Content = form.View,
                 XamlRoot = this.Content.XamlRoot
             };
-
-            // Use Grid for compact layout (No redundancy)
-            var grid = new Grid { RowSpacing = 12, ColumnSpacing = 12 };
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-
-            // Name | Startup Type
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-
-            var addSvcNameBox = new TextBox { Header = "服务名称 (仅字母数字)", PlaceholderText = "MyService" };
-            Grid.SetColumn(addSvcNameBox, 0); Grid.SetRow(addSvcNameBox, 0);
-
-            var addSvcStartupBox = new ComboBox { Header = "启动类型", HorizontalAlignment = HorizontalAlignment.Stretch };
-            addSvcStartupBox.Items.Add("开机自启");
-            addSvcStartupBox.Items.Add("手动启动");
-            Grid.SetColumn(addSvcStartupBox, 1); Grid.SetRow(addSvcStartupBox, 0);
-
-            // Exe Path | Browse Button
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-
-            var addSvcExeBox = new TextBox { Header = "可执行文件路径", PlaceholderText = "C:\\Path\\To\\App.exe" };
-            Grid.SetColumn(addSvcExeBox, 0); Grid.SetRow(addSvcExeBox, 1);
-            Grid.SetColumnSpan(addSvcExeBox, 2);
-
-            // Args
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            var addSvcArgsBox = new TextBox { Header = "启动参数 (可选)", PlaceholderText = "--config config.json" };
-            Grid.SetColumn(addSvcArgsBox, 0); Grid.SetRow(addSvcArgsBox, 2);
-            Grid.SetColumnSpan(addSvcArgsBox, 2);
-
-            // WorkDir
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            var addSvcWorkDirBox = new TextBox { Header = "工作目录 (可选)", PlaceholderText = "默认为程序所在目录" };
-            Grid.SetColumn(addSvcWorkDirBox, 0); Grid.SetRow(addSvcWorkDirBox, 3);
-            Grid.SetColumnSpan(addSvcWorkDirBox, 2);
-
-            // Auto Restart & Browse Button
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-
-            var addSvcAutoRestartCheck = new CheckBox { Content = "失败自动重启", IsChecked = false, VerticalAlignment = VerticalAlignment.Center };
-            Grid.SetColumn(addSvcAutoRestartCheck, 0); Grid.SetRow(addSvcAutoRestartCheck, 4);
-
-            var browseBtn = new Button { Content = "📂 选择程序", HorizontalAlignment = HorizontalAlignment.Right };
-            Grid.SetColumn(browseBtn, 1); Grid.SetRow(browseBtn, 4);
-
-            // Add children
-            grid.Children.Add(addSvcNameBox);
-            grid.Children.Add(addSvcStartupBox);
-            grid.Children.Add(addSvcExeBox);
-            grid.Children.Add(addSvcArgsBox);
-            grid.Children.Add(addSvcWorkDirBox);
-            grid.Children.Add(addSvcAutoRestartCheck);
-            grid.Children.Add(browseBtn);
-
-            // Events
-            browseBtn.Click += (s, args) =>
+            dialog.PrimaryButtonClick += (s, args) =>
             {
-                var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
-                var pickedPath = Win32Helper.PickFile(hwnd, "选择可执行文件");
-                if (pickedPath != null)
-                {
-                    addSvcExeBox.Text = pickedPath;
-                    if (string.IsNullOrWhiteSpace(addSvcWorkDirBox.Text))
-                    {
-                        addSvcWorkDirBox.Text = System.IO.Path.GetDirectoryName(pickedPath) ?? "";
-                    }
-                }
+                if (!form.Validate()) args.Cancel = true;
             };
 
-            // Wrap in ScrollViewer but HIDE scrollbars (Clean UI)
-            var scrollViewer = new ScrollViewer
+            var result = await dialog.ShowAsync();
+            if (result != ContentDialogResult.Primary) return;
+
+            var config = form.ToConfig();
+            if (existing == null)
             {
-                VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, // Hidden but scrollable
-                Content = grid
-            };
-
-            addServiceDialog.Content = scrollViewer;
-            addSvcStartupBox.SelectedIndex = 0;
-
-            var result = await addServiceDialog.ShowAsync();
-            if (result == ContentDialogResult.Primary)
-            {
-                if (string.IsNullOrWhiteSpace(addSvcNameBox.Text) || string.IsNullOrWhiteSpace(addSvcExeBox.Text))
-                {
-                    await ShowDialog("验证错误", "服务名称和可执行文件路径为必填项。");
-                    return;
-                }
-
                 try
                 {
-                    var config = new ServiceConfig
-                    {
-                        Name = addSvcNameBox.Text,
-                        ExePath = addSvcExeBox.Text,
-                        Args = addSvcArgsBox.Text,
-                        WorkingDir = addSvcWorkDirBox.Text,
-                        AutoRestart = addSvcAutoRestartCheck.IsChecked ?? false,
-                        StartupType = (ServiceStartupType)(addSvcStartupBox.SelectedIndex + 2)
-                    };
                     await _serviceManager.CreateServiceAsync(config);
                     LoadServices();
                     UpdateStatus($"服务 {config.Name} 已创建。");
@@ -506,6 +444,35 @@ namespace ServicesApp
                 catch (Exception ex)
                 {
                     await ShowDialog("错误", $"创建服务失败: {ex.Message}");
+                }
+                return;
+            }
+
+            try
+            {
+                await _serviceManager.UpdateServiceAsync(existing.Id, config);
+                LoadServices();
+                UpdateStatus($"服务 {config.Name} 已更新。");
+            }
+            catch (Exception ex)
+            {
+                await ShowDialog("错误", $"更新服务失败: {ex.Message}");
+                return;
+            }
+
+            if (existing.Status == "运行中" &&
+                await ShowConfirmDialog("应用更改", $"服务 '{config.Name}' 正在运行，新配置需重启服务后生效。是否立即重启？"))
+            {
+                try
+                {
+                    UpdateStatus($"正在重启服务 {existing.Id}...");
+                    await _serviceManager.StopServiceAsync(existing.Id);
+                    await _serviceManager.StartServiceAsync(existing.Id);
+                    UpdateStatus($"服务 {existing.Id} 已重启。");
+                }
+                catch (Exception ex)
+                {
+                    await ShowDialog("错误", $"重启服务失败: {ex.Message}");
                 }
             }
         }

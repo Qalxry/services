@@ -128,7 +128,7 @@
                     <ColumnDefinition Width="2*"/>
                     <ColumnDefinition Width="120"/>
                     <ColumnDefinition Width="3*"/>
-                    <ColumnDefinition Width="140"/> 
+                    <ColumnDefinition Width="176"/>
                 </Grid.ColumnDefinitions>
                 <TextBlock Text="服务名称" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.6"/>
                 <TextBlock Grid.Column="1" Text="状态" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.6"/>
@@ -154,7 +154,7 @@
                                 <ColumnDefinition Width="2*"/>
                                 <ColumnDefinition Width="120"/>
                                 <ColumnDefinition Width="3*"/>
-                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="176"/>
                             </Grid.ColumnDefinitions>
                             
                             <!-- Name & ID -->
@@ -197,6 +197,9 @@
                                 </Button>
                                 <Button Click="OnStopClick" Tag="{Binding Id}" ToolTipService.ToolTip="停止" Style="{StaticResource ActionIconButtonStyle}">
                                     <FontIcon Glyph="&#xE71A;" FontSize="14" Foreground="{ThemeResource SystemFillColorCriticalBrush}"/>
+                                </Button>
+                                <Button Click="OnEditClick" Tag="{Binding Id}" ToolTipService.ToolTip="编辑" Style="{StaticResource ActionIconButtonStyle}">
+                                    <FontIcon Glyph="&#xE70F;" FontSize="14"/>
                                 </Button>
                                 <Button Click="OnLogsClick" Tag="{Binding Id}" ToolTipService.ToolTip="日志" Style="{StaticResource ActionIconButtonStyle}">
                                     <FontIcon Glyph="&#xE8A5;" FontSize="14"/>

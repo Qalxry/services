@@ -13,6 +13,15 @@ namespace Services.Core.Helpers
         public const uint SERVICE_AUTO_START = 0x00000002;
         public const uint SERVICE_ERROR_NORMAL = 0x00000001;
         public const uint DELETE = 0x00010000;
+        public const uint SERVICE_CHANGE_CONFIG = 0x0002;
+        public const uint SERVICE_NO_CHANGE = 0xFFFFFFFF;
+        public const uint SERVICE_CONFIG_DESCRIPTION = 1;
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        public struct SERVICE_DESCRIPTION
+        {
+            [MarshalAs(UnmanagedType.LPWStr)] public string? lpDescription;
+        }
 
         [StructLayout(LayoutKind.Sequential)]
         public struct SERVICE_STATUS_PROCESS
@@ -53,6 +62,25 @@ namespace Services.Core.Helpers
         [DllImport("advapi32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool DeleteService(IntPtr hService);
+
+        [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool ChangeServiceConfig(
+            IntPtr hService,
+            uint dwServiceType,
+            uint dwStartType,
+            uint dwErrorControl,
+            string? lpBinaryPathName,
+            string? lpLoadOrderGroup,
+            IntPtr lpdwTagId,
+            string? lpDependencies,
+            string? lpServiceStartName,
+            string? lpPassword,
+            string? lpDisplayName);
+
+        [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode, EntryPoint = "ChangeServiceConfig2W")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool ChangeServiceConfig2(IntPtr hService, uint dwInfoLevel, ref SERVICE_DESCRIPTION lpInfo);
 
         [DllImport("advapi32.dll", SetLastError = true)]
         public static extern bool CloseServiceHandle(IntPtr hSCObject);

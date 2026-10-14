@@ -78,7 +78,7 @@ namespace Services.Core.Services
                 ExePath = s.ExePath,
                 Args = s.Args,
                 WorkingDir = s.WorkingDir,
-                AutoStart = s.AutoStart,
+                StartupType = s.StartupType,
                 AutoRestart = s.AutoRestart,
                 CreatedAt = s.CreatedAt,
                 UpdatedAt = s.UpdatedAt
@@ -108,15 +108,7 @@ namespace Services.Core.Services
 
         public async Task CreateServiceAsync(ServiceConfig config)
                 {
-                    if (!File.Exists(config.ExePath))
-                        throw new FileNotFoundException("Executable not found", config.ExePath);
-
-                    // Security Validation
-                    if (config.Name.Any(c => !char.IsLetterOrDigit(c) && c != '_' && c != '-' && c != ' '))
-                        throw new ArgumentException("Service Name contains invalid characters.");
-
-                    if (config.Name.Contains("\"") || config.Name.Contains("\n") || config.Name.Contains("\r"))
-                        throw new ArgumentException("Service Name contains illegal characters.");
+                    ValidateConfig(config);
 
                     string serviceName = GenerateServiceName(config.Name);
 
@@ -178,11 +170,7 @@ namespace Services.Core.Services
                                     {
                                         using (var paramsKey = serviceKey.CreateSubKey("Parameters"))
                                         {
-                                            paramsKey.SetValue("ExePath", config.ExePath);
-                                            paramsKey.SetValue("Args", config.Args ?? "");
-                                            paramsKey.SetValue("WorkingDir", string.IsNullOrEmpty(config.WorkingDir) ? Path.GetDirectoryName(config.ExePath) ?? "" : config.WorkingDir);
-                                            paramsKey.SetValue("DisplayName", config.Name);
-                                            paramsKey.SetValue("AutoRestart", config.AutoRestart ? 1 : 0);
+                                            WriteParameters(paramsKey, config);
                                             paramsKey.SetValue("CreatedAt", DateTime.Now.ToString("o"));
                                             paramsKey.SetValue("ManagedBy", "WindowsServiceManager");
                                         }
@@ -200,13 +188,128 @@ namespace Services.Core.Services
                         throw new Exception($"Failed to configure service registry: {ex.Message}");
                     }
 
-                    await RunCommandAsync("sc.exe", $"description \"{serviceName}\" \"Managed by Windows Service Manager: {config.Name}\"");
+                    SetServiceDescription(serviceName, BuildServiceDescription(config));
 
                     // Configure recovery actions: Restart service after 1 minute if it fails (e.g. dependencies not ready)
                     await RunCommandAsync("sc.exe", $"failure \"{serviceName}\" reset= 86400 actions= restart/60000/restart/60000/restart/60000");
 
                     await LoadServicesAsync();
                 }
+
+        /// <summary>
+        /// 更新已有服务的配置。服务 ID 保持不变，运行中的服务需重启后才会应用新的启动配置。
+        /// </summary>
+        public async Task UpdateServiceAsync(string serviceId, ServiceConfig config)
+        {
+            lock (_lock)
+            {
+                if (!_services.ContainsKey(serviceId)) throw new Exception("Service not found");
+            }
+
+            ValidateConfig(config);
+
+            IntPtr scmHandle = ServiceUtils.OpenSCManager(null, null, ServiceUtils.SC_MANAGER_CONNECT);
+            if (scmHandle == IntPtr.Zero)
+                throw new Exception($"Failed to open SC Manager. Error: {Marshal.GetLastWin32Error()}");
+
+            try
+            {
+                IntPtr serviceHandle = ServiceUtils.OpenService(scmHandle, serviceId, ServiceUtils.SERVICE_CHANGE_CONFIG);
+                if (serviceHandle == IntPtr.Zero)
+                    throw new Exception($"Failed to open service for update. Error: {Marshal.GetLastWin32Error()}");
+
+                try
+                {
+                    if (!ServiceUtils.ChangeServiceConfig(
+                            serviceHandle,
+                            ServiceUtils.SERVICE_NO_CHANGE,
+                            (uint)config.StartupType,
+                            ServiceUtils.SERVICE_NO_CHANGE,
+                            null,
+                            null,
+                            IntPtr.Zero,
+                            null,
+                            null,
+                            null,
+                            config.Name))
+                        throw new Exception($"Failed to update service config. Error: {Marshal.GetLastWin32Error()}");
+                }
+                finally
+                {
+                    ServiceUtils.CloseServiceHandle(serviceHandle);
+                }
+            }
+            finally
+            {
+                ServiceUtils.CloseServiceHandle(scmHandle);
+            }
+
+            using (var hklm = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64))
+            using (var paramsKey = hklm.CreateSubKey($@"SYSTEM\CurrentControlSet\Services\{serviceId}\Parameters"))
+            {
+                WriteParameters(paramsKey, config);
+            }
+
+            SetServiceDescription(serviceId, BuildServiceDescription(config));
+
+            await LoadServicesAsync();
+        }
+
+        private static void ValidateConfig(ServiceConfig config)
+        {
+            if (!File.Exists(config.ExePath))
+                throw new FileNotFoundException("Executable not found", config.ExePath);
+
+            // Security Validation
+            if (config.Name.Any(c => !char.IsLetterOrDigit(c) && c != '_' && c != '-' && c != ' '))
+                throw new ArgumentException("Service Name contains invalid characters.");
+
+            if (config.Name.Contains("\"") || config.Name.Contains("\n") || config.Name.Contains("\r"))
+                throw new ArgumentException("Service Name contains illegal characters.");
+        }
+
+        private static void WriteParameters(RegistryKey paramsKey, ServiceConfig config)
+        {
+            paramsKey.SetValue("ExePath", config.ExePath);
+            paramsKey.SetValue("Args", config.Args ?? "");
+            paramsKey.SetValue("WorkingDir", string.IsNullOrEmpty(config.WorkingDir) ? Path.GetDirectoryName(config.ExePath) ?? "" : config.WorkingDir);
+            paramsKey.SetValue("DisplayName", config.Name);
+            paramsKey.SetValue("AutoRestart", config.AutoRestart ? 1 : 0);
+        }
+
+        private static string BuildServiceDescription(ServiceConfig config)
+        {
+            return $"Managed by Windows Service Manager: {config.Name}";
+        }
+
+        private static void SetServiceDescription(string serviceName, string description)
+        {
+            IntPtr scmHandle = ServiceUtils.OpenSCManager(null, null, ServiceUtils.SC_MANAGER_CONNECT);
+            if (scmHandle == IntPtr.Zero)
+                throw new Exception($"Failed to open SC Manager. Error: {Marshal.GetLastWin32Error()}");
+
+            try
+            {
+                IntPtr serviceHandle = ServiceUtils.OpenService(scmHandle, serviceName, ServiceUtils.SERVICE_CHANGE_CONFIG);
+                if (serviceHandle == IntPtr.Zero)
+                    throw new Exception($"Failed to open service. Error: {Marshal.GetLastWin32Error()}");
+
+                try
+                {
+                    var info = new ServiceUtils.SERVICE_DESCRIPTION { lpDescription = description };
+                    if (!ServiceUtils.ChangeServiceConfig2(serviceHandle, ServiceUtils.SERVICE_CONFIG_DESCRIPTION, ref info))
+                        throw new Exception($"Failed to set service description. Error: {Marshal.GetLastWin32Error()}");
+                }
+                finally
+                {
+                    ServiceUtils.CloseServiceHandle(serviceHandle);
+                }
+            }
+            finally
+            {
+                ServiceUtils.CloseServiceHandle(scmHandle);
+            }
+        }
 
 
         private async Task RunCommandAsync(string command, string args)
@@ -448,6 +551,10 @@ namespace Services.Core.Services
             DateTime createdAt = DateTime.Now;
             if (DateTime.TryParse(createdAtStr, out var dt)) createdAt = dt;
 
+            var startupType = ServiceStartupType.Auto;
+            if (serviceKey.GetValue("Start") is int startVal && Enum.IsDefined(typeof(ServiceStartupType), startVal))
+                startupType = (ServiceStartupType)startVal;
+
             var (status, pid) = ServiceUtils.GetServiceStatus(serviceName);
 
             var service = new Service
@@ -460,7 +567,7 @@ namespace Services.Core.Services
                 AutoRestart = autoRestart,
                 CreatedAt = createdAt,
                 UpdatedAt = DateTime.Now,
-                AutoStart = true,
+                StartupType = startupType,
                 Status = status,
                 Pid = pid
             };
