@@ -88,6 +88,17 @@ namespace Services.Core.Helpers
         [DllImport("advapi32.dll", SetLastError = true)]
         public static extern bool QueryServiceStatusEx(IntPtr hService, int infoLevel, IntPtr lpBuffer, uint cbBufSize, out uint pcbBytesNeeded);
 
+        /// <summary>
+        /// 将多行启动参数合并为单行命令行（各行去除首尾空白、忽略空行，以空格拼接）
+        /// </summary>
+        public static string NormalizeArgs(string? args)
+        {
+            if (string.IsNullOrWhiteSpace(args)) return string.Empty;
+
+            var lines = args.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            return string.Join(" ", lines);
+        }
+
         public static (string Status, int Pid) GetServiceStatus(string serviceName)
         {
             IntPtr hSCManager = IntPtr.Zero;

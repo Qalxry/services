@@ -99,7 +99,7 @@ namespace Services.Core.Services
 
             if (string.IsNullOrEmpty(exePath)) throw new Exception("ExePath is missing in registry");
 
-            return (exePath, args ?? "", workingDir ?? "");
+            return (exePath, ServiceUtils.NormalizeArgs(args), workingDir ?? "");
         }
 
         private bool LoadAutoRestart()
