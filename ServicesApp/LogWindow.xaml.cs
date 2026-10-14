@@ -46,6 +46,9 @@ namespace ServicesApp
 
             // Bind ListView
             LogListView.ItemsSource = _logEntries;
+            var wordWrap = LogManager.GetLogWordWrap();
+            WrapCheck.IsChecked = wordWrap;
+            ApplyWordWrap(wordWrap);
 
             _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
             _timer.Tick += OnTimerTick;
@@ -83,6 +86,29 @@ namespace ServicesApp
         private void OnStreamFilterChanged(object sender, RoutedEventArgs e)
         {
             RebuildVisibleEntries();
+        }
+
+        private void OnWordWrapChanged(object sender, RoutedEventArgs e)
+        {
+            if (WrapCheck == null || LogListView == null) return;
+
+            var wordWrap = WrapCheck.IsChecked != false;
+            ApplyWordWrap(wordWrap);
+            LogManager.SetLogWordWrap(wordWrap);
+        }
+
+        /// <summary>
+        /// 切换换行模板；不换行时开启横向滚动
+        /// </summary>
+        private void ApplyWordWrap(bool wordWrap)
+        {
+            var templateKey = wordWrap ? "WrapLogTemplate" : "NoWrapLogTemplate";
+            if (RootGrid.Resources.TryGetValue(templateKey, out var template) && template is DataTemplate dataTemplate)
+            {
+                LogListView.ItemTemplate = dataTemplate;
+            }
+            ScrollViewer.SetHorizontalScrollMode(LogListView, wordWrap ? ScrollMode.Disabled : ScrollMode.Enabled);
+            ScrollViewer.SetHorizontalScrollBarVisibility(LogListView, wordWrap ? ScrollBarVisibility.Disabled : ScrollBarVisibility.Auto);
         }
 
         private bool ShouldShow(LogEntry entry)

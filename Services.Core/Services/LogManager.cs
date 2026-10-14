@@ -90,6 +90,30 @@ namespace Services.Core.Services
             return DefaultRetentionDays;
         }
 
+        /// <summary>
+        /// 日志查看器是否自动换行（默认开启）
+        /// </summary>
+        public static bool GetLogWordWrap()
+        {
+            try
+            {
+                using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\WindowsServiceManager");
+                if (key?.GetValue("LogWordWrap") is int val) return val != 0;
+            }
+            catch { }
+            return true;
+        }
+
+        public static void SetLogWordWrap(bool wrap)
+        {
+            try
+            {
+                using var key = Registry.LocalMachine.CreateSubKey(@"SOFTWARE\WindowsServiceManager");
+                key.SetValue("LogWordWrap", wrap ? 1 : 0);
+            }
+            catch { }
+        }
+
         public static void SetGlobalRetentionDays(int days)
         {
             try
