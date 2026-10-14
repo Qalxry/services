@@ -30,6 +30,7 @@ namespace ServicesApp
         private bool _isLoadServicesRunning = false;
         private System.Threading.Timer? _logCleanupTimer;
         private CancellationTokenSource? _cleanupCts;
+        private RegisteredWaitHandle? _showWindowWait;
         private static readonly TimeSpan VisibleRefreshInterval = TimeSpan.FromSeconds(2);
         private static readonly TimeSpan HiddenRefreshInterval = TimeSpan.FromSeconds(30);
 
@@ -66,6 +67,17 @@ namespace ServicesApp
             Title = "ServicesApp";
 
             this.Closed += OnWindowClosed;
+
+            // 再次启动程序时显示已运行实例的主窗口
+            if (Program.ShowWindowEvent != null)
+            {
+                _showWindowWait = ThreadPool.RegisterWaitForSingleObject(
+                    Program.ShowWindowEvent,
+                    (_, _) => DispatcherQueue.TryEnqueue(ShowWindow),
+                    null,
+                    Timeout.Infinite,
+                    executeOnlyOnce: false);
+            }
 
             _refreshTimer = new DispatcherTimer { Interval = VisibleRefreshInterval };
             _refreshTimer.Tick += async (s, e) =>
@@ -118,6 +130,9 @@ namespace ServicesApp
                 _appWindow.Changed -= OnAppWindowChanged;
             }
             
+            _showWindowWait?.Unregister(null);
+            _showWindowWait = null;
+
             _refreshTimer?.Stop();
             _refreshTimer = null;
 
@@ -231,6 +246,7 @@ namespace ServicesApp
             _appWindow.Show();
             _appWindow.MoveInZOrderAtTop();
             this.Activate();
+            Win32Helper.SetForegroundWindow(WindowNative.GetWindowHandle(this));
             UpdateTimerState(true);
             LoadServices(); // Refresh immediately when showing
         }

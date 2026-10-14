@@ -6,6 +6,10 @@ namespace ServicesApp
 {
     public static class Win32Helper
     {
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool SetForegroundWindow(IntPtr hWnd);
+
         public static string? PickFile(IntPtr owner, string title)
         {
             var dialog = (IFileOpenDialog)new FileOpenDialog();

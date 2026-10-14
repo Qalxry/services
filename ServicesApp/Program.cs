@@ -11,6 +11,14 @@ namespace ServicesApp
 {
     public static class Program
     {
+        private const string ShowWindowEventName = "Global\\Services_App_ShowWindow_Event";
+        private const int ASFW_ANY = -1;
+
+        /// <summary>
+        /// 已运行实例监听的事件：再次启动程序时由新进程置位，通知已运行实例显示主窗口
+        /// </summary>
+        public static EventWaitHandle? ShowWindowEvent { get; private set; }
+
         [STAThread]
         static void Main(string[] args)
         {
@@ -36,21 +44,14 @@ namespace ServicesApp
 
             if (!createdNew)
             {
-                var current = Process.GetCurrentProcess();
-                foreach (var process in Process.GetProcessesByName(current.ProcessName))
-                {
-                    if (process.Id != current.Id)
-                    {
-                        if (process.MainWindowHandle != IntPtr.Zero)
-                        {
-                            ShowWindow(process.MainWindowHandle, 9);
-                            SetForegroundWindow(process.MainWindowHandle);
-                        }
-                        break;
-                    }
-                }
+                // 已运行的实例可能隐藏在托盘（无可见窗口句柄），同名进程中也包含服务包装器进程，
+                // 因此不再查找窗口句柄，而是通过命名事件通知已运行实例自行显示主窗口。
+                SignalRunningInstance();
                 return;
             }
+
+            using var showWindowEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ShowWindowEventName);
+            ShowWindowEvent = showWindowEvent;
 
             WinRT.ComWrappersSupport.InitializeComWrappers();
 
@@ -62,10 +63,27 @@ namespace ServicesApp
             });
         }
 
-        [DllImport("user32.dll")]
-        private static extern bool SetForegroundWindow(IntPtr hWnd);
+        private static void SignalRunningInstance()
+        {
+            // 新启动的进程拥有前台权限，允许已运行实例把窗口切到前台
+            AllowSetForegroundWindow(ASFW_ANY);
+
+            // 已运行实例可能刚创建互斥量、尚未创建事件，短暂重试
+            for (int i = 0; i < 20; i++)
+            {
+                if (EventWaitHandle.TryOpenExisting(ShowWindowEventName, out var showWindowEvent))
+                {
+                    using (showWindowEvent)
+                    {
+                        showWindowEvent.Set();
+                    }
+                    return;
+                }
+                Thread.Sleep(100);
+            }
+        }
 
         [DllImport("user32.dll")]
-        private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+        private static extern bool AllowSetForegroundWindow(int dwProcessId);
     }
 }
