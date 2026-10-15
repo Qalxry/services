@@ -190,7 +190,7 @@ WinForms/WPF 框架）；升级 GUI 必须停止所有服务；服务绑定在 G
 | A | Windows 端到端集成测试并接入 CI | P0 | 已完成 |
 | B | 包装器生命周期状态机（消除启动 / 重启 / 停止竞态） | P0 | 已完成 |
 | C | 受保护的版本化包装器目录（升级免停服务、自动清理、修复提权风险） | P0 | 已完成 |
-| R | 代码结构整理（含 J：UI 与应用层解耦） | P1 | 待办 |
+| R | 代码结构整理（含 J：UI 与应用层解耦） | P1 | 已完成 |
 | D | 环境变量等敏感配置的保护 | P1 | 待办 |
 | E | `servicesctl doctor` 诊断命令 | P1 | 待办 |
 | F | 资源限制（内存 / CPU，基于 Job Object） | P1 | 待办 |
@@ -271,6 +271,16 @@ GUI 与 CLI 存在重复的展示文本函数；注册表字段名为分散的�
 - 新增 `.editorconfig` 与 `.gitattributes`，在单独的提交中统一换行符（不夹带逻辑改动，便于审计）。
 
 **验收**：行为不变（A 的集成测试与全部单元测试通过）；单文件不超过约 500 行；GUI 不再直接依赖中文状态字符串。
+
+**完成情况**（5 个提交）：
+- 换行符：`.editorconfig` / `.gitattributes`，单独提交统一 `WindowsServiceManager.cs` 的换行符。
+- Core：`Scm/`（SCM 封装）、`Storage/`（注册表路径与值名常量、服务参数读写、服务索引）、
+  `Presentation/`（展示文本与详情行，GUI 与 CLI 共用）、`Application/`（应用层门面 `ServiceOperations`、
+  `ConfigApplier`）、`Configuration/`（配置文件模型与计划，自 CLI 移入）；`WindowsServiceManager` 985 → 485 行。
+- 运行状态改为 `ServiceRunState` 枚举，中文文本只在 `Presentation` 中生成。
+- CLI：`CliApp.cs` 1001 → 171 行，每个命令一个文件。
+- GUI：表单改用按顺序追加行的 `FormRows`；`MainWindow` 按职责拆分为 5 个部分类文件（最大 440 行）。
+- 方案 A（应用层门面）已落地：更换界面时只需调用 `ServiceOperations` / `ConfigApplier` 与 `Presentation`。
 
 ## D. 敏感配置保护（P1）
 

@@ -46,38 +46,23 @@ namespace ServicesApp
             _ownerHwnd = ownerHwnd;
             _existing = existing;
 
-            // Use Grid for compact layout (No redundancy)
-            var grid = new Grid { RowSpacing = 12, ColumnSpacing = 12 };
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-
             // Name | Startup Type
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
             _nameBox = new TextBox { Header = "服务名称 (仅字母数字)", PlaceholderText = "MyService" };
-            Grid.SetColumn(_nameBox, 0); Grid.SetRow(_nameBox, 0);
 
             _startupBox = new ComboBox { Header = "启动类型", HorizontalAlignment = HorizontalAlignment.Stretch };
             foreach (var name in ServiceText.StartupModeNames)
                 _startupBox.Items.Add(name);
-            Grid.SetColumn(_startupBox, 1); Grid.SetRow(_startupBox, 0);
 
             // Exe Path | File picker
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             _exeBox = new TextBox { Header = "可执行文件路径", PlaceholderText = "C:\\Path\\To\\App.exe" };
             var exeRow = CreatePickerRow(_exeBox, "\uE8E5", "选择可执行文件", OnPickExe);
-            Grid.SetColumn(exeRow, 0); Grid.SetRow(exeRow, 1);
-            Grid.SetColumnSpan(exeRow, 2);
 
             // WorkDir | Folder picker
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             _workDirBox = new TextBox { Header = "工作目录 (可选)", PlaceholderText = "默认为程序所在目录" };
             var workDirRow = CreatePickerRow(_workDirBox, "\uE838", "选择工作目录", OnPickWorkDir);
-            Grid.SetColumn(workDirRow, 0); Grid.SetRow(workDirRow, 2);
-            Grid.SetColumnSpan(workDirRow, 2);
 
             // Args (multi-line)
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             _argsBox = new TextBox
             {
                 Header = "启动参数 (可选)",
@@ -89,11 +74,8 @@ namespace ServicesApp
                 MaxHeight = 160
             };
             ScrollViewer.SetVerticalScrollBarVisibility(_argsBox, ScrollBarVisibility.Auto);
-            Grid.SetColumn(_argsBox, 0); Grid.SetRow(_argsBox, 3);
-            Grid.SetColumnSpan(_argsBox, 2);
 
             // Description (multi-line)
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             _descriptionBox = new TextBox
             {
                 Header = "描述 (可选)",
@@ -105,11 +87,8 @@ namespace ServicesApp
                 MaxHeight = 120
             };
             ScrollViewer.SetVerticalScrollBarVisibility(_descriptionBox, ScrollBarVisibility.Auto);
-            Grid.SetColumn(_descriptionBox, 0); Grid.SetRow(_descriptionBox, 4);
-            Grid.SetColumnSpan(_descriptionBox, 2);
 
             // Environment variables (multi-line KEY=VALUE)
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             _environmentBox = new TextBox
             {
                 Header = "环境变量 (可选)",
@@ -122,17 +101,12 @@ namespace ServicesApp
                 MaxHeight = 120
             };
             ScrollViewer.SetVerticalScrollBarVisibility(_environmentBox, ScrollBarVisibility.Auto);
-            Grid.SetColumn(_environmentBox, 0); Grid.SetRow(_environmentBox, 5);
-            Grid.SetColumnSpan(_environmentBox, 2);
 
             // Auto Restart
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
             _autoRestartCheck = new CheckBox { Content = "失败自动重启", IsChecked = false, VerticalAlignment = VerticalAlignment.Center };
-            Grid.SetColumn(_autoRestartCheck, 0); Grid.SetRow(_autoRestartCheck, 6);
 
             // Restart policy (visible when auto restart is enabled)
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             _restartDelayBox = CreateNumberBox("重启延迟 (秒)", 1, 3600, RestartPolicyDefaults.DelaySeconds);
             _maxRestartsBox = CreateNumberBox("最大重启次数", 0, 1000, RestartPolicyDefaults.MaxRestarts);
             _maxRestartsBox.Description = "0 表示不限制";
@@ -162,44 +136,34 @@ namespace ServicesApp
                 Background = GetThemeBrush("CardBackgroundFillColorSecondaryBrush"),
                 Visibility = Visibility.Collapsed
             };
-            Grid.SetColumn(_restartPolicyPanel, 0); Grid.SetRow(_restartPolicyPanel, 7);
-            Grid.SetColumnSpan(_restartPolicyPanel, 2);
             _autoRestartCheck.Checked += (s, e) => _restartPolicyPanel.Visibility = Visibility.Visible;
             _autoRestartCheck.Unchecked += (s, e) => _restartPolicyPanel.Visibility = Visibility.Collapsed;
 
             // Stop mode | Stop timeout
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             _stopModeBox = new ComboBox { Header = "停止方式", HorizontalAlignment = HorizontalAlignment.Stretch };
             _stopModeBox.Items.Add("直接结束进程");
             _stopModeBox.Items.Add("发送 Ctrl+C（控制台程序）");
             _stopModeBox.Items.Add("执行停止命令");
-            Grid.SetColumn(_stopModeBox, 0); Grid.SetRow(_stopModeBox, 8);
 
             _stopTimeoutBox = CreateNumberBox("停止超时 (秒)", 1, StopPolicyDefaults.MaxTimeoutSeconds, StopPolicyDefaults.TimeoutSeconds);
             _stopTimeoutBox.Description = "超时未退出则强制结束进程树";
-            Grid.SetColumn(_stopTimeoutBox, 1); Grid.SetRow(_stopTimeoutBox, 8);
 
             // Stop command
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             _stopCommandBox = new TextBox
             {
                 Header = "停止命令",
                 PlaceholderText = "{exe} -s quit",
                 Description = "在工作目录中通过 cmd 执行；占位符：{exe} 程序路径、{workdir} 工作目录（自动加引号）、{pid} 进程 ID"
             };
-            Grid.SetColumn(_stopCommandBox, 0); Grid.SetRow(_stopCommandBox, 9);
-            Grid.SetColumnSpan(_stopCommandBox, 2);
             _stopModeBox.SelectionChanged += (s, e) => UpdateStopControls();
 
             // Run-as account | Hint
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             _accountBox = new ComboBox { Header = "运行账户", HorizontalAlignment = HorizontalAlignment.Stretch };
             _accountBox.Items.Add("本地系统（LocalSystem）");
             _accountBox.Items.Add("本地服务（LocalService）");
             _accountBox.Items.Add("网络服务（NetworkService）");
             _accountBox.Items.Add("虚拟账户（NT SERVICE\\服务ID）");
             _accountBox.Items.Add("指定用户");
-            Grid.SetColumn(_accountBox, 0); Grid.SetRow(_accountBox, 10);
 
             _accountHint = new TextBlock
             {
@@ -209,62 +173,49 @@ namespace ServicesApp
                 Opacity = 0.7,
                 VerticalAlignment = VerticalAlignment.Bottom
             };
-            Grid.SetColumn(_accountHint, 1); Grid.SetRow(_accountHint, 10);
 
             // User name | Password
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             _accountNameBox = new TextBox { Header = "账户名", PlaceholderText = @".\svcuser 或 DOMAIN\svcuser" };
-            Grid.SetColumn(_accountNameBox, 0); Grid.SetRow(_accountNameBox, 11);
 
             _passwordBox = new PasswordBox
             {
                 Header = "密码",
                 PlaceholderText = existing?.AccountType == ServiceAccountType.User ? "留空表示不修改密码" : ""
             };
-            Grid.SetColumn(_passwordBox, 1); Grid.SetRow(_passwordBox, 11);
             _accountBox.SelectionChanged += (s, e) => UpdateAccountControls();
 
             // Service dependencies (comma / newline separated service names)
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             _dependenciesBox = new TextBox
             {
                 Header = "依赖服务 (可选)",
                 PlaceholderText = "Tcpip, MySQL80",
                 Description = "启动本服务前会先启动这些服务；填写 Windows 服务名，如 Tcpip、MySQL80，多个用逗号分隔"
             };
-            Grid.SetColumn(_dependenciesBox, 0); Grid.SetRow(_dependenciesBox, 12);
-            Grid.SetColumnSpan(_dependenciesBox, 2);
 
             // Validation message
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             _errorText = new TextBlock
             {
                 Foreground = GetThemeBrush("SystemFillColorCriticalBrush"),
                 TextWrapping = TextWrapping.Wrap,
                 Visibility = Visibility.Collapsed
             };
-            Grid.SetColumn(_errorText, 0); Grid.SetRow(_errorText, 13);
-            Grid.SetColumnSpan(_errorText, 2);
 
-            // Add children
-            grid.Children.Add(_nameBox);
-            grid.Children.Add(_startupBox);
-            grid.Children.Add(exeRow);
-            grid.Children.Add(workDirRow);
-            grid.Children.Add(_argsBox);
-            grid.Children.Add(_descriptionBox);
-            grid.Children.Add(_environmentBox);
-            grid.Children.Add(_autoRestartCheck);
-            grid.Children.Add(_restartPolicyPanel);
-            grid.Children.Add(_stopModeBox);
-            grid.Children.Add(_stopTimeoutBox);
-            grid.Children.Add(_stopCommandBox);
-            grid.Children.Add(_accountBox);
-            grid.Children.Add(_accountHint);
-            grid.Children.Add(_accountNameBox);
-            grid.Children.Add(_passwordBox);
-            grid.Children.Add(_dependenciesBox);
-            grid.Children.Add(_errorText);
+            // 表单行（自上而下）
+            var form = new FormRows(columns: 2, spacing: 12);
+            form.Add(_nameBox, _startupBox);
+            form.Add(exeRow);
+            form.Add(workDirRow);
+            form.Add(_argsBox);
+            form.Add(_descriptionBox);
+            form.Add(_environmentBox);
+            form.Add(_autoRestartCheck, null);
+            form.Add(_restartPolicyPanel);
+            form.Add(_stopModeBox, _stopTimeoutBox);
+            form.Add(_stopCommandBox);
+            form.Add(_accountBox, _accountHint);
+            form.Add(_accountNameBox, _passwordBox);
+            form.Add(_dependenciesBox);
+            form.Add(_errorText);
 
             if (existing != null)
             {
@@ -301,7 +252,7 @@ namespace ServicesApp
             View = new ScrollViewer
             {
                 VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, // Hidden but scrollable
-                Content = grid
+                Content = form.Grid
             };
         }
 
