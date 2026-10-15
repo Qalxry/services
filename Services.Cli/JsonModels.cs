@@ -31,6 +31,29 @@ namespace Services.Cli
         public List<string> Dependencies { get; set; } = new();
         public DateTime CreatedAt { get; set; }
         public string? LatestLogPath { get; set; }
+        /// <summary>包装器写入的运行状态；尚无状态文件（服务从未以新版包装器运行过）时为 null</summary>
+        public RuntimeInfo? Runtime { get; set; }
+    }
+
+    internal sealed class RuntimeInfo
+    {
+        /// <summary>包装器进程 ID</summary>
+        public int WrapperPid { get; set; }
+        public DateTime WrapperStartedAt { get; set; }
+        /// <summary>目标进程 ID；目标进程未运行（已退出、等待重启或服务已停止）时为 null</summary>
+        public int? ProcessPid { get; set; }
+        public DateTime? ProcessStartedAt { get; set; }
+        /// <summary>服务运行时长（秒）；仅服务运行中且状态文件属于当前服务进程时有值，否则为 null</summary>
+        public long? UptimeSeconds { get; set; }
+        /// <summary>当前计数窗口内的重启次数</summary>
+        public int RestartCount { get; set; }
+        /// <summary>本次包装器运行以来的重启总次数</summary>
+        public int TotalRestarts { get; set; }
+        public int? LastExitCode { get; set; }
+        public DateTime? LastExitAt { get; set; }
+        /// <summary>包装器最近一次以失败状态停止的原因</summary>
+        public string? LastFailureReason { get; set; }
+        public DateTime UpdatedAt { get; set; }
     }
 
     internal sealed class RestartPolicyInfo
@@ -101,6 +124,7 @@ namespace Services.Cli
         PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
         WriteIndented = true)]
     [JsonSerializable(typeof(ServiceInfo))]
+    [JsonSerializable(typeof(RuntimeInfo))]
     [JsonSerializable(typeof(List<ServiceInfo>))]
     [JsonSerializable(typeof(Dictionary<string, string>))]
     [JsonSerializable(typeof(ActionResult))]

@@ -590,6 +590,7 @@ namespace ServicesApp
             AddRow("服务 ID", service.Id, true);
             AddRow("描述", service.Description);
             AddRow("状态", service.HasPid ? $"{service.Status} (PID {service.Pid})" : service.Status);
+            AddRuntimeRows(AddRow, service);
             AddRow("启动类型", ServiceStartupModes.ToDisplayName(service.StartupType, service.DelayedAutoStart));
             AddRow("失败自动重启", service.AutoRestart ? GetRestartPolicyText(service) : "未启用");
             AddRow("停止方式", GetStopPolicyText(service));
@@ -621,6 +622,21 @@ namespace ServicesApp
             {
                 ShowLogViewer(service.Id, service.Name);
             }
+        }
+
+        /// <summary>
+        /// 添加包装器记录的运行信息行。没有状态文件（服务从未以新版包装器运行过）时各行显示“—”。
+        /// </summary>
+        private static void AddRuntimeRows(Action<string, string?, bool> addRow, Service service)
+        {
+            var state = new ServiceStateStore().Read(service.Id);
+            var uptime = ServiceRuntimeState.GetUptime(state, service.Pid, service.Status == "运行中", DateTime.Now);
+
+            addRow("运行时长", uptime is { } span ? DurationFormatter.Format(span) : null, false);
+            addRow("重启次数", state == null ? null : ServiceRuntimeText.Restarts(state.RestartCount, state.TotalRestarts), false);
+            addRow("上次退出", state == null ? null : ServiceRuntimeText.LastExit(state.LastExitCode, state.LastExitAt), false);
+            if (!string.IsNullOrWhiteSpace(state?.LastFailureReason))
+                addRow("最近失败原因", state!.LastFailureReason, false);
         }
 
         private static string GetRestartPolicyText(Service service)

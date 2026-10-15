@@ -886,7 +886,29 @@ namespace Services.Cli
                     .ToDictionary(pair => pair.Key, pair => pair.Value),
                 Dependencies = s.Dependencies.ToList(),
                 CreatedAt = s.CreatedAt,
-                LatestLogPath = logManager.GetLatestLogPath(s.Id)
+                LatestLogPath = logManager.GetLatestLogPath(s.Id),
+                Runtime = ToRuntimeInfo(s, new ServiceStateStore(logManager.GetLogDirectory()).Read(s.Id))
+            };
+        }
+
+        private static RuntimeInfo? ToRuntimeInfo(Service s, ServiceRuntimeState? state)
+        {
+            if (state == null) return null;
+
+            var uptime = ServiceRuntimeState.GetUptime(state, s.Pid, s.Status == "运行中", DateTime.Now);
+            return new RuntimeInfo
+            {
+                WrapperPid = state.WrapperPid,
+                WrapperStartedAt = state.WrapperStartedAt,
+                ProcessPid = state.ProcessPid,
+                ProcessStartedAt = state.ProcessStartedAt,
+                UptimeSeconds = uptime is { } span ? (long)span.TotalSeconds : null,
+                RestartCount = state.RestartCount,
+                TotalRestarts = state.TotalRestarts,
+                LastExitCode = state.LastExitCode,
+                LastExitAt = state.LastExitAt,
+                LastFailureReason = state.LastFailureReason,
+                UpdatedAt = state.UpdatedAt
             };
         }
 
@@ -926,6 +948,10 @@ namespace Services.Cli
                 ("名称", info.Name),
                 ("描述", info.Description),
                 ("状态", info.Pid is { } pid ? $"{info.StatusText} (PID {pid})" : info.StatusText),
+                ("运行时长", info.Runtime?.UptimeSeconds is { } uptime ? DurationFormatter.Format(TimeSpan.FromSeconds(uptime)) : null),
+                ("重启次数", info.Runtime is { } rt ? ServiceRuntimeText.Restarts(rt.RestartCount, rt.TotalRestarts) : null),
+                ("上次退出", info.Runtime is { } last ? ServiceRuntimeText.LastExit(last.LastExitCode, last.LastExitAt) : null),
+                ("最近失败原因", info.Runtime?.LastFailureReason),
                 ("启动类型", info.StartupType == "delayed-auto" ? "delayed-auto（延迟自动启动）" : info.StartupType),
                 ("失败自动重启", restartText),
                 ("停止方式", stopText),

@@ -12,6 +12,7 @@
    - 目标程序及其子进程纳入 Job Object，包装器异常退出时不会遗留孤儿进程。
    - 运行账户：LocalSystem（默认）、LocalService、NetworkService、虚拟账户或指定用户。
    - 服务级环境变量：每行一个 `KEY=VALUE`，叠加在继承的环境之上，值中可用 `%PATH%` 等引用现有变量。
+   - 运行状态：详情与 `servicesctl get` 显示运行时长、重启次数（本轮 / 累计）、上次退出码与时间、最近失败原因（包装器写入 `%ProgramData%\windows_service_logs\state\<服务ID>.json`）。
    - 服务依赖与延迟自动启动：启动类型可选“延迟自动启动”；可指定依赖的 Windows 服务（如 `Tcpip`、`MySQL80`），启动前系统会先启动它们。
    - 列表支持按名称、状态、路径排序（再次点击切换降序，第三次恢复添加顺序）。
    - 查看服务日志，支持 ANSI 颜色、stdout / stderr 筛选、行时间戳显示开关及文本换行切换。

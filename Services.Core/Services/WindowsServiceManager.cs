@@ -752,6 +752,9 @@ namespace Services.Core.Services
                     {
                         System.Diagnostics.Debug.WriteLine($"Failed to delete event source: {ex.Message}");
                     }
+
+                    // 删除运行状态文件（失败时内部已忽略异常）
+                    new ServiceStateStore().Delete(serviceId);
                 }
 
 

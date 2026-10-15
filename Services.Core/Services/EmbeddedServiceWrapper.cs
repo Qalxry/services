@@ -32,6 +32,9 @@ namespace Services.Core.Services
         private (string ExePath, string Args, string WorkingDir) _config;
         private int _restartCount = 0;
         private DateTime _lastRestartTime = DateTime.MinValue;
+        private readonly object _stateLock = new();
+        private ServiceStateStore? _stateStore;
+        private ServiceRuntimeState? _state;
 
         // 系统关机时 SCM 只给服务很短的时间（默认约 5 秒），优雅停止的等待上限
         private const int ShutdownStopTimeoutSeconds = 4;
@@ -52,6 +55,7 @@ namespace Services.Core.Services
         {
             try
             {
+                InitRuntimeState();
                 var config = LoadConfig();
                 _config = config;
                 LoadRestartPolicy();
@@ -67,6 +71,7 @@ namespace Services.Core.Services
             catch (Exception ex)
             {
                 LogCriticalError(ex);
+                UpdateRuntimeState(s => s.LastFailureReason = $"Service startup failed: {ex.Message}");
                 ExitCode = 1064;
                 Stop();
             }
@@ -75,6 +80,53 @@ namespace Services.Core.Services
         private void LogSystem(string message)
         {
             _logger?.Log(LogLine.Format(LogLineKind.System, message, DateTime.Now));
+        }
+
+        /// <summary>
+        /// 创建本次运行的状态并写入状态文件。上次运行留下的“最近退出 / 失败原因”予以保留
+        /// （服务被 SCM 恢复策略重新拉起后仍可看到上一次为何停止），其余计数从零开始。
+        /// </summary>
+        private void InitRuntimeState()
+        {
+            try
+            {
+                _stateStore = new ServiceStateStore();
+                var previous = _stateStore.Read(_serviceName);
+                var now = DateTime.Now;
+                lock (_stateLock)
+                {
+                    _state = new ServiceRuntimeState
+                    {
+                        ServiceId = _serviceName,
+                        WrapperPid = Environment.ProcessId,
+                        WrapperStartedAt = now,
+                        LastExitCode = previous?.LastExitCode,
+                        LastExitAt = previous?.LastExitAt,
+                        LastFailureReason = previous?.LastFailureReason,
+                        UpdatedAt = now
+                    };
+                    _stateStore.Write(_state);
+                }
+            }
+            catch { }
+        }
+
+        /// <summary>
+        /// 更新并写入运行状态。任何失败都被忽略，绝不影响服务运行。
+        /// </summary>
+        private void UpdateRuntimeState(Action<ServiceRuntimeState> update)
+        {
+            try
+            {
+                lock (_stateLock)
+                {
+                    if (_state == null || _stateStore == null) return;
+                    update(_state);
+                    _state.UpdatedAt = DateTime.Now;
+                    _stateStore.Write(_state);
+                }
+            }
+            catch { }
         }
 
         private void InitLogger()
@@ -160,6 +212,12 @@ namespace Services.Core.Services
 
             _process?.Dispose();
             _process = null;
+
+            UpdateRuntimeState(s =>
+            {
+                s.ProcessPid = null;
+                s.ProcessStartedAt = null;
+            });
 
             _logger?.Dispose();
             _logger = null;
@@ -366,6 +424,7 @@ namespace Services.Core.Services
             }
             catch { }
 
+            UpdateRuntimeState(s => s.LastFailureReason = reason);
             ExitCode = exitCode;
             Stop();
         }
@@ -387,6 +446,12 @@ namespace Services.Core.Services
 
             int delay = _restartBackoff ? _restartDelayMs << Math.Min(_restartCount - 1, 4) : _restartDelayMs;
             _lastRestartTime = DateTime.Now;
+
+            UpdateRuntimeState(s =>
+            {
+                s.RestartCount = _restartCount;
+                s.TotalRestarts++;
+            });
 
             var limit = _maxRestarts > 0 ? _maxRestarts.ToString() : "unlimited";
             LogSystem($"{action} {_restartCount}/{limit} in {delay}ms");
@@ -431,11 +496,39 @@ namespace Services.Core.Services
                 _process.BeginOutputReadLine();
                 _process.BeginErrorReadLine();
 
-                _process.EnableRaisingEvents = true;
-                _process.Exited += (s, e) =>
+                // 先记录启动再启用退出事件，保证状态中“启动”早于“退出”
+                var startedPid = _process.Id;
+                var startedAt = DateTime.Now;
+                UpdateRuntimeState(s =>
                 {
-                    int exitCode = _process.ExitCode;
+                    s.ProcessPid = startedPid;
+                    s.ProcessStartedAt = startedAt;
+                });
+
+                // 事件处理中只使用本次启动的进程对象：停止流程会把 _process 置空并释放，重启会替换为新进程。
+                // 在事件处理中访问 _process 可能抛出异常，未处理的异常会使包装器崩溃，被 SCM 视为故障而重新拉起刚停止的服务。
+                var process = _process;
+                process.EnableRaisingEvents = true;
+                process.Exited += (s, e) =>
+                {
+                    int exitCode;
+                    try
+                    {
+                        exitCode = process.ExitCode;
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        // 进程对象已在停止流程中被释放
+                        exitCode = -1;
+                    }
                     LogSystem($"Process exited (code: {exitCode})");
+                    UpdateRuntimeState(state =>
+                    {
+                        state.ProcessPid = null;
+                        state.ProcessStartedAt = null;
+                        state.LastExitCode = exitCode;
+                        state.LastExitAt = DateTime.Now;
+                    });
 
                     if (_isStopping) return;
 

@@ -149,6 +149,18 @@ namespace Services.Cli
               dependencies      依赖的服务名数组（本服务启动前需先启动的 Windows 服务），无依赖时为 []
               createdAt         创建时间（ISO 8601）
               latestLogPath     最新日志文件路径，尚无日志时为 null
+              runtime           包装器记录的运行状态对象，尚无状态文件时为 null；字段:
+                                  wrapperPid         包装器进程 ID
+                                  wrapperStartedAt   包装器启动时间（ISO 8601，本地时间）
+                                  processPid         目标进程 ID，目标进程未运行（已退出 / 等待重启 / 服务已停止）时为 null
+                                  processStartedAt   目标进程启动时间，同上
+                                  uptimeSeconds      服务运行时长（秒）；仅服务运行中且状态属于当前服务进程时有值，否则为 null
+                                  restartCount       当前计数窗口内的重启次数（超过重置时间后清零）
+                                  totalRestarts      本次包装器运行以来的重启总次数
+                                  lastExitCode       目标进程最近一次的退出码，从未退出过为 null
+                                  lastExitAt         目标进程最近一次的退出时间
+                                  lastFailureReason  包装器最近一次以失败状态停止的原因，没有时为 null
+                                  updatedAt          状态最后更新时间
 
             权限: 普通权限即可。
             """;
