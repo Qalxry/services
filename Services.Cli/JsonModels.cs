@@ -24,6 +24,7 @@ namespace Services.Cli
         public bool AutoRestart { get; set; }
         public RestartPolicyInfo RestartPolicy { get; set; } = new();
         public StopPolicyInfo StopPolicy { get; set; } = new();
+        public ResourceLimitsInfo ResourceLimits { get; set; } = new();
         public AccountInfo Account { get; set; } = new();
         /// <summary>服务级环境变量（名称 → 值，按名称排序）；值中的 %VAR% 引用在启动时展开。未设置时为空对象</summary>
         public Dictionary<string, string> Environment { get; set; } = new();
@@ -74,6 +75,15 @@ namespace Services.Cli
         public string Mode { get; set; } = "kill";
         public string? Command { get; set; }
         public int TimeoutSeconds { get; set; }
+    }
+
+    /// <summary>资源限制，0 表示不限制</summary>
+    internal sealed class ResourceLimitsInfo
+    {
+        public int MemoryMB { get; set; }
+        public int ProcessMemoryMB { get; set; }
+        public int CpuPercent { get; set; }
+        public int MaxProcesses { get; set; }
     }
 
     internal sealed class AccountInfo

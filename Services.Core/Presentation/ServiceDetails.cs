@@ -42,6 +42,8 @@ namespace Services.Core.Presentation
                 new("失败自动重启", ServiceText.RestartPolicy(service.AutoRestart, service.RestartDelaySeconds,
                     service.MaxRestarts, service.RestartResetMinutes, service.RestartBackoff)),
                 new("停止方式", ServiceText.StopPolicy(service.StopMode, service.StopCommand, service.StopTimeoutSeconds)),
+                new("资源限制", ServiceText.ResourceLimits(service.MemoryLimitMB, service.ProcessMemoryLimitMB,
+                    service.CpuLimitPercent, service.MaxProcesses)),
                 new("运行账户", service.AccountName, true),
                 new("可执行文件路径", service.ExePath, true),
                 new("工作目录", service.WorkingDir, true),

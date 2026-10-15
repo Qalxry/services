@@ -68,6 +68,13 @@ namespace Services.Cli
                     Command = string.IsNullOrEmpty(s.StopCommand) ? null : s.StopCommand,
                     TimeoutSeconds = s.StopTimeoutSeconds
                 },
+                ResourceLimits = new ResourceLimitsInfo
+                {
+                    MemoryMB = s.MemoryLimitMB,
+                    ProcessMemoryMB = s.ProcessMemoryLimitMB,
+                    CpuPercent = s.CpuLimitPercent,
+                    MaxProcesses = s.MaxProcesses
+                },
                 Environment = s.Environment
                     .OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
                     .ToDictionary(pair => pair.Key, pair => pair.Value),

@@ -27,7 +27,9 @@ namespace Services.Tests
             RestartBackoff = false,
             StopMode = ServiceStopMode.Command,
             StopCommand = "{exe} -s quit",
-            StopTimeoutSeconds = 60
+            StopTimeoutSeconds = 60,
+            MemoryLimitMB = 512,
+            CpuLimitPercent = 50
         };
 
         private static ServiceDefinition Minimal(string name = "App") => new() { Name = name, Exe = @"C:\Apps\app.exe" };
@@ -286,6 +288,36 @@ namespace Services.Tests
             var plan = ApplyPlanner.Build(Desired(entry), existing, false, _ => true);
 
             Assert.Equal("unchanged", Assert.Single(plan).Action);
+        }
+    
+        [Fact]
+        public void ResourceLimits_RoundTripAndDiff()
+        {
+            var service = FullService();
+            var definition = ConfigFileMapper.ToDefinition(service);
+            Assert.Equal(512, definition.ResourceLimits!.MemoryMB);
+            Assert.Equal(50, definition.ResourceLimits.CpuPercent);
+
+            definition.ResourceLimits.CpuPercent = 80;
+            var config = ConfigFileMapper.ToConfig(definition, "services[0]");
+            Assert.Equal(new[] { "resourceLimits" }, ConfigFileMapper.Diff(ServiceConfig.FromService(service), config));
+        }
+
+        [Fact]
+        public void ResourceLimits_OmittedWhenUnlimited()
+        {
+            Assert.Null(ConfigFileMapper.ToDefinition(Existing("id", "A")).ResourceLimits);
+            var config = ConfigFileMapper.ToConfig(Minimal(), "services[0]");
+            Assert.Equal(0, config.MemoryLimitMB + config.ProcessMemoryLimitMB + config.CpuLimitPercent + config.MaxProcesses);
+        }
+
+        [Fact]
+        public void ResourceLimits_OutOfRangeIsRejected()
+        {
+            var definition = Minimal();
+            definition.ResourceLimits = new ResourceLimitsDefinition { CpuPercent = 150 };
+            var ex = Assert.Throws<ConfigFileException>(() => ConfigFileMapper.ToConfig(definition, "services[1]"));
+            Assert.Contains("services[1].resourceLimits.cpuPercent", ex.Message);
         }
     }
 }

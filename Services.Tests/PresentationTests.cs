@@ -42,6 +42,14 @@ namespace Services.Tests
         }
 
         [Fact]
+        public void ResourceLimits()
+        {
+            Assert.Equal("不限制", ServiceText.ResourceLimits(0, 0, 0, 0));
+            Assert.Equal("内存 512 MB，CPU 50%", ServiceText.ResourceLimits(512, 0, 50, 0));
+            Assert.Equal("单进程内存 64 MB，进程数 3", ServiceText.ResourceLimits(0, 64, 0, 3));
+        }
+
+        [Fact]
         public void StopPolicy()
         {
             Assert.Equal("直接结束进程", ServiceText.StopPolicy(ServiceStopMode.Kill, null, 30));

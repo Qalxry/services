@@ -10,7 +10,8 @@ namespace Services.TestTarget
     ///   --print-env &lt;name&gt;       输出 "env &lt;name&gt;=&lt;value&gt;"（可重复）
     ///   --print-user             输出 "user &lt;域\用户&gt;"
     ///   --print-cwd              输出 "cwd &lt;当前目录&gt;"
-    ///   --spawn-child &lt;file&gt;     派生一个一直运行的子进程，将其 PID 写入文件
+    ///   --spawn-child &lt;file&gt;     派生一个一直运行的子进程，将其 PID 写入文件（失败时输出 "spawn failed"）
+    ///   --alloc-mb &lt;n&gt;          分配并写入 n MB 内存：成功输出 "allocated n MB"，失败输出 "alloc failed" 并以 7 退出
     ///   --ctrlc-file &lt;file&gt;      收到 Ctrl+C 时写入 "ctrlc" 并退出（退出码由 --ctrlc-exit 指定，默认 0）
     ///   --ctrlc-exit &lt;code&gt;
     ///   --ignore-ctrlc           忽略 Ctrl+C
@@ -45,8 +46,37 @@ namespace Services.TestTarget
 
             if (options.SpawnChild != null)
             {
-                var child = Process.Start(new ProcessStartInfo(Environment.ProcessPath!, "--sleep") { UseShellExecute = false })!;
-                File.WriteAllText(options.SpawnChild, child.Id.ToString());
+                try
+                {
+                    var child = Process.Start(new ProcessStartInfo(Environment.ProcessPath!, "--sleep") { UseShellExecute = false })!;
+                    File.WriteAllText(options.SpawnChild, child.Id.ToString());
+                }
+                catch (Exception ex)
+                {
+                    Console.Out.WriteLine($"spawn failed: {ex.Message}");
+                }
+            }
+
+            if (options.AllocMB > 0)
+            {
+                var blocks = new List<byte[]>();
+                try
+                {
+                    for (int i = 0; i < options.AllocMB; i++)
+                    {
+                        var block = new byte[1024 * 1024];
+                        for (int j = 0; j < block.Length; j += 4096) block[j] = 1;
+                        blocks.Add(block);
+                    }
+                    Console.Out.WriteLine($"allocated {options.AllocMB} MB");
+                }
+                catch (OutOfMemoryException)
+                {
+                    blocks.Clear();
+                    Console.Out.WriteLine("alloc failed");
+                    Console.Out.Flush();
+                    return 7;
+                }
             }
 
             var exit = new ManualResetEventSlim();
@@ -115,6 +145,7 @@ namespace Services.TestTarget
             public bool PrintUser;
             public bool PrintCwd;
             public string? SpawnChild;
+            public int AllocMB;
             public string? CtrlCFile;
             public int CtrlCExit;
             public bool IgnoreCtrlC;
@@ -139,6 +170,7 @@ namespace Services.TestTarget
                         case "--print-user": o.PrintUser = true; break;
                         case "--print-cwd": o.PrintCwd = true; break;
                         case "--spawn-child": o.SpawnChild = Next(); break;
+                        case "--alloc-mb": o.AllocMB = int.Parse(Next()); break;
                         case "--ctrlc-file": o.CtrlCFile = Next(); break;
                         case "--ctrlc-exit": o.CtrlCExit = int.Parse(Next()); break;
                         case "--ignore-ctrlc": o.IgnoreCtrlC = true; break;

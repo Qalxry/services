@@ -94,6 +94,27 @@ namespace Services.Cli
                 changed++;
             }
 
+            if (args.GetInt("memory-limit", 0, ResourceLimitRanges.MaxMemoryMB) is { } memory)
+            {
+                config.MemoryLimitMB = memory;
+                changed++;
+            }
+            if (args.GetInt("process-memory-limit", 0, ResourceLimitRanges.MaxMemoryMB) is { } processMemory)
+            {
+                config.ProcessMemoryLimitMB = processMemory;
+                changed++;
+            }
+            if (args.GetInt("cpu-limit", 0, ResourceLimitRanges.MaxCpuPercent) is { } cpu)
+            {
+                config.CpuLimitPercent = cpu;
+                changed++;
+            }
+            if (args.GetInt("max-processes", 0, ResourceLimitRanges.MaxProcesses) is { } processes)
+            {
+                config.MaxProcesses = processes;
+                changed++;
+            }
+
             if (args.GetValue("account") is { } account)
             {
                 if (string.IsNullOrWhiteSpace(account))

@@ -39,6 +39,10 @@ namespace Services.Core.Storage
             key.SetValue(ParameterNames.StopMode, (int)config.StopMode, RegistryValueKind.DWord);
             key.SetValue(ParameterNames.StopCommand, config.StopCommand ?? "");
             key.SetValue(ParameterNames.StopTimeoutSeconds, config.StopTimeoutSeconds, RegistryValueKind.DWord);
+            key.SetValue(ParameterNames.MemoryLimitMB, config.MemoryLimitMB, RegistryValueKind.DWord);
+            key.SetValue(ParameterNames.ProcessMemoryLimitMB, config.ProcessMemoryLimitMB, RegistryValueKind.DWord);
+            key.SetValue(ParameterNames.CpuLimitPercent, config.CpuLimitPercent, RegistryValueKind.DWord);
+            key.SetValue(ParameterNames.MaxProcesses, config.MaxProcesses, RegistryValueKind.DWord);
             key.SetValue(ParameterNames.Environment, EnvironmentVariables.FormatLines(config.Environment), RegistryValueKind.MultiString);
             // 敏感变量只在此记录变量名，值由 SecretStore 写入受保护的子键
             key.SetValue(ParameterNames.SecretEnvironmentNames,
@@ -124,6 +128,10 @@ namespace Services.Core.Storage
                     ? (ServiceStopMode)stopMode : ServiceStopMode.Kill,
                 StopCommand = p.GetValue(ParameterNames.StopCommand) as string,
                 StopTimeoutSeconds = ReadInt(p, ParameterNames.StopTimeoutSeconds, v => v > 0, StopPolicyDefaults.TimeoutSeconds),
+                MemoryLimitMB = ReadInt(p, ParameterNames.MemoryLimitMB, v => v >= 0, 0),
+                ProcessMemoryLimitMB = ReadInt(p, ParameterNames.ProcessMemoryLimitMB, v => v >= 0, 0),
+                CpuLimitPercent = ReadInt(p, ParameterNames.CpuLimitPercent, v => v is >= 0 and <= ResourceLimitRanges.MaxCpuPercent, 0),
+                MaxProcesses = ReadInt(p, ParameterNames.MaxProcesses, v => v >= 0, 0),
                 AccountType = ServiceAccounts.ParseObjectName(accountName),
                 AccountName = string.IsNullOrWhiteSpace(accountName) ? ServiceAccounts.LocalSystemName : accountName,
                 Environment = EnvironmentVariables.ParseLenient(p.GetValue(ParameterNames.Environment) as string[]),

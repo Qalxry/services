@@ -302,6 +302,12 @@ namespace Services.Core.Services
             if (config.StopMode == ServiceStopMode.Command && string.IsNullOrWhiteSpace(config.StopCommand))
                 throw new ArgumentException("Stop command is required when stop mode is 'command'.");
 
+            if (config.MemoryLimitMB is < 0 or > ResourceLimitRanges.MaxMemoryMB ||
+                config.ProcessMemoryLimitMB is < 0 or > ResourceLimitRanges.MaxMemoryMB ||
+                config.CpuLimitPercent is < 0 or > ResourceLimitRanges.MaxCpuPercent ||
+                config.MaxProcesses is < 0 or > ResourceLimitRanges.MaxProcesses)
+                throw new ArgumentException("Resource limit is out of range.");
+
             EnvironmentVariables.Validate(config.Environment);
             EnvironmentVariables.Validate(config.SecretEnvironment);
             var overlap = config.Environment.Keys.FirstOrDefault(config.SecretEnvironment.ContainsKey);

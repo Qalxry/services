@@ -96,6 +96,16 @@ namespace Services.Core.Presentation
 
         public static string Time(DateTime time) => time.ToString(TimeFormat);
 
+        public static string ResourceLimits(int memoryMB, int processMemoryMB, int cpuPercent, int maxProcesses)
+        {
+            var parts = new List<string>();
+            if (memoryMB > 0) parts.Add($"内存 {memoryMB} MB");
+            if (processMemoryMB > 0) parts.Add($"单进程内存 {processMemoryMB} MB");
+            if (cpuPercent > 0) parts.Add($"CPU {cpuPercent}%");
+            if (maxProcesses > 0) parts.Add($"进程数 {maxProcesses}");
+            return parts.Count == 0 ? "不限制" : string.Join("，", parts);
+        }
+
         /// <summary>
         /// 敏感环境变量：KEY=****** 行（showValues 时显示真实值）；无权读取时值显示为“（无权读取）”
         /// </summary>

@@ -46,6 +46,16 @@ namespace Services.Core.Configuration
         public bool AutoRestart { get; set; }
         public RestartPolicyDefinition? RestartPolicy { get; set; }
         public StopPolicyDefinition? StopPolicy { get; set; }
+        /// <summary>资源限制；省略或各项为 0 表示不限制</summary>
+        public ResourceLimitsDefinition? ResourceLimits { get; set; }
+    }
+
+    public sealed class ResourceLimitsDefinition
+    {
+        public int MemoryMB { get; set; }
+        public int ProcessMemoryMB { get; set; }
+        public int CpuPercent { get; set; }
+        public int MaxProcesses { get; set; }
     }
 
     public sealed class RestartPolicyDefinition
@@ -173,7 +183,17 @@ namespace Services.Core.Configuration
                     Mode = FormatStopMode(service.StopMode),
                     Command = string.IsNullOrWhiteSpace(service.StopCommand) ? null : service.StopCommand,
                     TimeoutSeconds = service.StopTimeoutSeconds
-                }
+                },
+                ResourceLimits = service.MemoryLimitMB == 0 && service.ProcessMemoryLimitMB == 0 &&
+                                 service.CpuLimitPercent == 0 && service.MaxProcesses == 0
+                    ? null
+                    : new ResourceLimitsDefinition
+                    {
+                        MemoryMB = service.MemoryLimitMB,
+                        ProcessMemoryMB = service.ProcessMemoryLimitMB,
+                        CpuPercent = service.CpuLimitPercent,
+                        MaxProcesses = service.MaxProcesses
+                    }
             };
         }
 
@@ -189,6 +209,7 @@ namespace Services.Core.Configuration
 
             var restart = definition.RestartPolicy ?? new RestartPolicyDefinition();
             var stop = definition.StopPolicy ?? new StopPolicyDefinition();
+            var limits = definition.ResourceLimits ?? new ResourceLimitsDefinition();
             var (startupType, delayed) = ParseStartup(definition.Startup, path);
             var (accountType, accountName) = ParseAccount(definition.Account);
 
@@ -217,7 +238,11 @@ namespace Services.Core.Configuration
                 RestartBackoff = restart.Backoff,
                 StopMode = ParseStopMode(stop.Mode, path),
                 StopCommand = stop.Command?.Trim() ?? "",
-                StopTimeoutSeconds = CheckRange(stop.TimeoutSeconds, 1, StopPolicyDefaults.MaxTimeoutSeconds, $"{path}.stopPolicy.timeoutSeconds")
+                StopTimeoutSeconds = CheckRange(stop.TimeoutSeconds, 1, StopPolicyDefaults.MaxTimeoutSeconds, $"{path}.stopPolicy.timeoutSeconds"),
+                MemoryLimitMB = CheckRange(limits.MemoryMB, 0, ResourceLimitRanges.MaxMemoryMB, $"{path}.resourceLimits.memoryMB"),
+                ProcessMemoryLimitMB = CheckRange(limits.ProcessMemoryMB, 0, ResourceLimitRanges.MaxMemoryMB, $"{path}.resourceLimits.processMemoryMB"),
+                CpuLimitPercent = CheckRange(limits.CpuPercent, 0, ResourceLimitRanges.MaxCpuPercent, $"{path}.resourceLimits.cpuPercent"),
+                MaxProcesses = CheckRange(limits.MaxProcesses, 0, ResourceLimitRanges.MaxProcesses, $"{path}.resourceLimits.maxProcesses")
             };
 
             if (config.StopMode == ServiceStopMode.Command && string.IsNullOrWhiteSpace(config.StopCommand))
@@ -278,6 +303,10 @@ namespace Services.Core.Configuration
             Check("stopPolicy", current.StopMode == desired.StopMode &&
                 Normalize(current.StopCommand) == Normalize(desired.StopCommand) &&
                 current.StopTimeoutSeconds == desired.StopTimeoutSeconds);
+            Check("resourceLimits", current.MemoryLimitMB == desired.MemoryLimitMB &&
+                current.ProcessMemoryLimitMB == desired.ProcessMemoryLimitMB &&
+                current.CpuLimitPercent == desired.CpuLimitPercent &&
+                current.MaxProcesses == desired.MaxProcesses);
             return changes;
         }
 

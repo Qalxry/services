@@ -33,6 +33,7 @@ namespace Services.Core.Wrapper
         public bool SecretsUnavailable { get; init; }
         public RestartPolicySettings Restart { get; init; } = RestartPolicySettings.Default;
         public StopPolicySettings Stop { get; init; } = StopPolicySettings.Default;
+        public ResourceLimits Limits { get; init; } = ResourceLimits.None;
 
         public static WrapperSettings Load(string serviceId)
         {
@@ -60,7 +61,12 @@ namespace Services.Core.Wrapper
                 Environment = environment,
                 SecretsUnavailable = hasSecrets && secrets == null,
                 Restart = Try(() => LoadRestartPolicy(key), RestartPolicySettings.Default),
-                Stop = Try(() => LoadStopPolicy(key), StopPolicySettings.Default)
+                Stop = Try(() => LoadStopPolicy(key), StopPolicySettings.Default),
+                Limits = Try(() => new ResourceLimits(
+                    ReadNonNegative(key, ParameterNames.MemoryLimitMB),
+                    ReadNonNegative(key, ParameterNames.ProcessMemoryLimitMB),
+                    Math.Min(ReadNonNegative(key, ParameterNames.CpuLimitPercent), ResourceLimitRanges.MaxCpuPercent),
+                    ReadNonNegative(key, ParameterNames.MaxProcesses)), ResourceLimits.None)
             };
         }
 
@@ -89,6 +95,9 @@ namespace Services.Core.Wrapper
                 mode = ServiceStopMode.Kill;
             return new StopPolicySettings(mode, command, timeout);
         }
+
+        private static int ReadNonNegative(RegistryKey key, string name) =>
+            key.GetValue(name) is int value && value > 0 ? value : 0;
 
         private static T Try<T>(Func<T> load, T fallback)
         {

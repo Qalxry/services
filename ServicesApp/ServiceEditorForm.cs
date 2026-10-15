@@ -32,6 +32,10 @@ namespace ServicesApp
         private readonly ComboBox _stopModeBox;
         private readonly NumberBox _stopTimeoutBox;
         private readonly TextBox _stopCommandBox;
+        private readonly NumberBox _memoryLimitBox;
+        private readonly NumberBox _processMemoryLimitBox;
+        private readonly NumberBox _cpuLimitBox;
+        private readonly NumberBox _maxProcessesBox;
         private readonly ComboBox _accountBox;
         private readonly TextBlock _accountHint;
         private readonly TextBox _accountNameBox;
@@ -172,6 +176,16 @@ namespace ServicesApp
             };
             _stopModeBox.SelectionChanged += (s, e) => UpdateStopControls();
 
+            // Resource limits (0 = unlimited)
+            _memoryLimitBox = CreateNumberBox("内存上限 (MB)", 0, ResourceLimitRanges.MaxMemoryMB, 0);
+            _memoryLimitBox.Description = "目标程序及其子进程合计；0 表示不限制";
+            _processMemoryLimitBox = CreateNumberBox("单进程内存上限 (MB)", 0, ResourceLimitRanges.MaxMemoryMB, 0);
+            _processMemoryLimitBox.Description = "0 表示不限制";
+            _cpuLimitBox = CreateNumberBox("CPU 上限 (%)", 0, ResourceLimitRanges.MaxCpuPercent, 0);
+            _cpuLimitBox.Description = "占全部 CPU 的百分比；0 表示不限制";
+            _maxProcessesBox = CreateNumberBox("进程数上限", 0, ResourceLimitRanges.MaxProcesses, 0);
+            _maxProcessesBox.Description = "含目标程序自身；0 表示不限制";
+
             // Run-as account | Hint
             _accountBox = new ComboBox { Header = "运行账户", HorizontalAlignment = HorizontalAlignment.Stretch };
             _accountBox.Items.Add("本地系统（LocalSystem）");
@@ -228,6 +242,8 @@ namespace ServicesApp
             form.Add(_restartPolicyPanel);
             form.Add(_stopModeBox, _stopTimeoutBox);
             form.Add(_stopCommandBox);
+            form.Add(_memoryLimitBox, _processMemoryLimitBox);
+            form.Add(_cpuLimitBox, _maxProcessesBox);
             form.Add(_accountBox, _accountHint);
             form.Add(_accountNameBox, _passwordBox);
             form.Add(_dependenciesBox);
@@ -252,6 +268,10 @@ namespace ServicesApp
                 _stopModeBox.SelectedIndex = (int)existing.StopMode;
                 _stopTimeoutBox.Value = existing.StopTimeoutSeconds;
                 _stopCommandBox.Text = existing.StopCommand ?? "";
+                _memoryLimitBox.Value = existing.MemoryLimitMB;
+                _processMemoryLimitBox.Value = existing.ProcessMemoryLimitMB;
+                _cpuLimitBox.Value = existing.CpuLimitPercent;
+                _maxProcessesBox.Value = existing.MaxProcesses;
                 _accountBox.SelectedIndex = (int)existing.AccountType;
                 _accountNameBox.Text = existing.AccountType == ServiceAccountType.User ? existing.AccountName ?? "" : "";
                 _startupBox.SelectedIndex = ServiceStartupModes.ToIndex(existing.StartupType, existing.DelayedAutoStart);
@@ -508,6 +528,10 @@ namespace ServicesApp
                 StopMode = SelectedStopMode,
                 StopCommand = _stopCommandBox.Text.Trim(),
                 StopTimeoutSeconds = ReadNumber(_stopTimeoutBox, StopPolicyDefaults.TimeoutSeconds),
+                MemoryLimitMB = ReadNumber(_memoryLimitBox, 0),
+                ProcessMemoryLimitMB = ReadNumber(_processMemoryLimitBox, 0),
+                CpuLimitPercent = ReadNumber(_cpuLimitBox, 0),
+                MaxProcesses = ReadNumber(_maxProcessesBox, 0),
                 AccountType = SelectedAccountType,
                 AccountName = SelectedAccountType == ServiceAccountType.User ? _accountNameBox.Text.Trim() : null,
                 Environment = environment,

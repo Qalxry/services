@@ -42,6 +42,13 @@ namespace Services.Cli
                                     {workdir} 工作目录（均自动加引号）、{pid} 进程 ID。
                                     例：nginx 用 "{exe} -s quit"（若启动参数含 -p / -c，停止命令需带相同参数）
               --stop-timeout <秒>   优雅停止的最长等待时间，1-3600，默认 30。系统关机时最多等待 4 秒
+              --memory-limit <MB>   目标程序进程树（含子进程）的内存上限，超出时内存分配失败；0 表示不限制
+              --process-memory-limit <MB>
+                                    单个进程的内存上限；0 表示不限制
+              --cpu-limit <百分比>  CPU 占用硬上限（占全部 CPU 的百分比，1-100）；0 表示不限制
+              --max-processes <数>  同时运行的进程数上限（含目标程序自身），超出时创建进程失败；0 表示不限制
+                                    以上限制通过 Job Object 施加于目标程序及其子进程，包装器自身不受限制；
+                                    目标程序启动后立即受限，在此之前（启动瞬间）创建的子进程不受限
               --account <账户>      运行账户，默认 localsystem（权限最高）：
                                       localsystem | localservice | networkservice
                                       virtual  虚拟账户 NT SERVICE\<服务ID>，每个服务独立、无需密码（推荐的低权限方案）
@@ -163,6 +170,7 @@ namespace Services.Cli
               restartPolicy     { delaySeconds, maxRestarts (0=不限), resetMinutes, backoff }
               stopPolicy        { mode (kill | ctrl-c | command), command, timeoutSeconds }
               account           { type (localsystem | localservice | networkservice | virtual | user), name }
+              resourceLimits    资源限制 { memoryMB, processMemoryMB, cpuPercent, maxProcesses }，0 表示不限制
               environment       服务级环境变量对象 { 变量名: 值 }（按变量名排序，值为未展开的原始文本），未设置时为 {}
               secretEnvironment 敏感环境变量对象 { 变量名: 值 }，值默认为 null（遮蔽），--show-secrets 时为真实值；
                                 无权读取（非管理员）时同样为 null。未设置时为 {}
@@ -384,7 +392,8 @@ namespace Services.Cli
                     "dependencies": [ "Tcpip" ],
                     "autoRestart": true,
                     "restartPolicy": { "delaySeconds": 5, "maxRestarts": 5, "resetMinutes": 10, "backoff": true },
-                    "stopPolicy": { "mode": "kill", "command": null, "timeoutSeconds": 30 }
+                    "stopPolicy": { "mode": "kill", "command": null, "timeoutSeconds": 30 },
+                    "resourceLimits": { "memoryMB": 512, "processMemoryMB": 0, "cpuPercent": 50, "maxProcesses": 0 }
                   }
                 ]
               }

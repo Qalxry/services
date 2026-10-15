@@ -116,6 +116,15 @@ namespace Services.Core.Models
         public string? StopCommand { get; set; }
         public int StopTimeoutSeconds { get; set; } = StopPolicyDefaults.TimeoutSeconds;
 
+        /// <summary>目标程序进程树的内存上限（MB），0 表示不限制</summary>
+        public int MemoryLimitMB { get; set; }
+        /// <summary>单个进程的内存上限（MB），0 表示不限制</summary>
+        public int ProcessMemoryLimitMB { get; set; }
+        /// <summary>CPU 占用上限（占全部 CPU 的百分比，硬上限），0 表示不限制</summary>
+        public int CpuLimitPercent { get; set; }
+        /// <summary>同时运行的进程数上限（含目标程序自身），0 表示不限制</summary>
+        public int MaxProcesses { get; set; }
+
         public ServiceAccountType AccountType { get; set; } = ServiceAccountType.LocalSystem;
         /// <summary>SCM 中记录的运行账户名（ObjectName），如 LocalSystem、NT SERVICE\&lt;服务ID&gt;、.\user</summary>
         public string? AccountName { get; set; }
@@ -160,6 +169,10 @@ namespace Services.Core.Models
             StopMode = other.StopMode;
             StopCommand = other.StopCommand;
             StopTimeoutSeconds = other.StopTimeoutSeconds;
+            MemoryLimitMB = other.MemoryLimitMB;
+            ProcessMemoryLimitMB = other.ProcessMemoryLimitMB;
+            CpuLimitPercent = other.CpuLimitPercent;
+            MaxProcesses = other.MaxProcesses;
             AccountType = other.AccountType;
             AccountName = other.AccountName;
             Environment = EnvironmentVariables.Clone(other.Environment);
@@ -200,6 +213,11 @@ namespace Services.Core.Models
         public ServiceStopMode StopMode { get; set; } = ServiceStopMode.Kill;
         public string? StopCommand { get; set; }
         public int StopTimeoutSeconds { get; set; } = StopPolicyDefaults.TimeoutSeconds;
+        /// <summary>资源限制，0 表示不限制（取值范围见 <see cref="ResourceLimitRanges"/>）</summary>
+        public int MemoryLimitMB { get; set; }
+        public int ProcessMemoryLimitMB { get; set; }
+        public int CpuLimitPercent { get; set; }
+        public int MaxProcesses { get; set; }
         public ServiceAccountType AccountType { get; set; } = ServiceAccountType.LocalSystem;
         /// <summary>指定用户时的账户名（如 .\svcuser、DOMAIN\svcuser）；其他类型忽略。密码不保存在配置中。</summary>
         public string? AccountName { get; set; }
@@ -233,6 +251,10 @@ namespace Services.Core.Models
                 StopMode = service.StopMode,
                 StopCommand = service.StopCommand,
                 StopTimeoutSeconds = service.StopTimeoutSeconds,
+                MemoryLimitMB = service.MemoryLimitMB,
+                ProcessMemoryLimitMB = service.ProcessMemoryLimitMB,
+                CpuLimitPercent = service.CpuLimitPercent,
+                MaxProcesses = service.MaxProcesses,
                 AccountType = service.AccountType,
                 AccountName = service.AccountName,
                 Environment = EnvironmentVariables.Clone(service.Environment),
@@ -287,6 +309,16 @@ namespace Services.Core.Models
         Virtual = 3,
         /// <summary>指定的本地或域用户（需要密码）</summary>
         User = 4
+    }
+
+    /// <summary>
+    /// 资源限制的取值范围（0 均表示不限制）
+    /// </summary>
+    public static class ResourceLimitRanges
+    {
+        public const int MaxMemoryMB = 1024 * 1024;
+        public const int MaxCpuPercent = 100;
+        public const int MaxProcesses = 10000;
     }
 
     public static class StopPolicyDefaults

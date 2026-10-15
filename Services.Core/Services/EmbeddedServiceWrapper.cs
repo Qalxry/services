@@ -31,6 +31,8 @@ namespace Services.Core.Services
         // 包装器进程自身所在的 Job（KILL_ON_JOB_CLOSE）。生命周期与包装器进程一致，不主动关闭：
         // 关闭句柄会结束 Job 内所有进程（包括包装器自身），应由进程退出时由系统关闭。
         private JobObject? _job;
+        // 资源限制所在的 Job（嵌套在 _job 之内，只包含目标程序及其子进程，包装器自身不受限制）
+        private JobObject? _limitsJob;
         private AsyncLogger? _logger;
 
         // 系统关机时 SCM 只给服务很短的时间（默认约 5 秒），优雅停止的等待上限
@@ -152,6 +154,8 @@ namespace Services.Core.Services
 
                 if (!process.Start())
                     throw new InvalidOperationException("Process.Start() returned false.");
+                // 尽早加入资源限制 Job，缩短子进程在加入之前被创建的窗口
+                ApplyResourceLimits(process);
 
                 process.BeginOutputReadLine();
                 process.BeginErrorReadLine();
@@ -171,6 +175,33 @@ namespace Services.Core.Services
                                     win32.NativeErrorCode is 2 or 3;
                 return _machine!.ProcessStartFailed(generation, fileNotFound, settings.ExePath, ex.Message, DateTime.Now);
             }
+        }
+
+        /// <summary>
+        /// 将刚启动的目标程序加入资源限制 Job。进程启动后立即加入，此后创建的子进程同样受限；
+        /// 加入失败只记录警告，不影响运行。
+        /// </summary>
+        private void ApplyResourceLimits(Process process)
+        {
+            var limits = _settings!.Limits;
+            if (limits.IsEmpty) return;
+            try
+            {
+                if (_limitsJob == null)
+                {
+                    _limitsJob = JobObject.CreateWithLimits(limits);
+                    LogSystem($"Resource limits: memory {Describe(limits.MemoryLimitMB, "MB")}, per-process memory " +
+                              $"{Describe(limits.ProcessMemoryLimitMB, "MB")}, CPU {Describe(limits.CpuLimitPercent, "%")}, " +
+                              $"processes {Describe(limits.MaxProcesses, "")}");
+                }
+                _limitsJob.AssignProcess(process.Handle);
+            }
+            catch (Exception ex)
+            {
+                LogSystem($"Warning: failed to apply resource limits: {ex.Message}");
+            }
+
+            static string Describe(int value, string unit) => value > 0 ? $"{value}{unit}" : "unlimited";
         }
 
         private void OnTargetExited(Process process, int generation)

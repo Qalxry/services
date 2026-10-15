@@ -44,6 +44,10 @@ namespace Services.Core.Storage
         public const string StopMode = "StopMode";
         public const string StopCommand = "StopCommand";
         public const string StopTimeoutSeconds = "StopTimeoutSeconds";
+        public const string MemoryLimitMB = "MemoryLimitMB";
+        public const string ProcessMemoryLimitMB = "ProcessMemoryLimitMB";
+        public const string CpuLimitPercent = "CpuLimitPercent";
+        public const string MaxProcesses = "MaxProcesses";
         /// <summary>REG_MULTI_SZ，每项 KEY=VALUE</summary>
         public const string Environment = "Environment";
         /// <summary>REG_MULTI_SZ，敏感环境变量的变量名（值在 Secrets 子键中，每个变量一个 REG_SZ 值）</summary>
