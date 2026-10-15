@@ -442,8 +442,9 @@ namespace Services.Core.Services
         {
             var objectName = ServiceAccounts.ToObjectName(config.AccountType, serviceId, config.AccountName);
 
-            // 虚拟账户在服务存在后才能解析 SID，因此先设置账户再授权目录
-            ChangeServiceAccount(serviceId, objectName, config.AccountType == ServiceAccountType.User ? password ?? "" : "");
+            // 虚拟账户在服务存在后才能解析 SID，因此先设置账户再授权目录。
+            // 只有指定用户需要密码；虚拟账户的密码必须为 NULL（传空字符串会失败，错误 1057），内置账户忽略密码。
+            ChangeServiceAccount(serviceId, objectName, config.AccountType == ServiceAccountType.User ? password ?? "" : null);
 
             if (config.AccountType != ServiceAccountType.LocalSystem)
             {
@@ -451,7 +452,7 @@ namespace Services.Core.Services
             }
         }
 
-        private static void ChangeServiceAccount(string serviceId, string objectName, string password)
+        private static void ChangeServiceAccount(string serviceId, string objectName, string? password)
         {
             IntPtr scmHandle = ServiceUtils.OpenSCManager(null, null, ServiceUtils.SC_MANAGER_CONNECT);
             if (scmHandle == IntPtr.Zero)
