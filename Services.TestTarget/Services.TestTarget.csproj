@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- 集成测试用的目标程序：按参数输出、退出、响应 Ctrl+C、派生子进程，供 Services.IntegrationTests 作为服务运行 -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>testtarget</AssemblyName>
+    <RootNamespace>Services.TestTarget</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+</Project>

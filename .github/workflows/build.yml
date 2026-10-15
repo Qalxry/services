@@ -52,6 +52,25 @@ jobs:
           /p:Configuration=Release `
           /p:PublishDir=${{ github.workspace }}\publish-single\
 
+    - name: 编译集成测试目标程序 (Build Test Target)
+      run: dotnet publish Services.TestTarget/Services.TestTarget.csproj -c Release -o ${{ github.workspace }}\it-target
+
+    # 构建机具备管理员权限，集成测试会真实创建、启动、停止并删除服务
+    - name: 集成测试 (Integration Tests)
+      env:
+        SERVICES_IT_BIN: ${{ github.workspace }}\publish-single
+        SERVICES_IT_TARGET: ${{ github.workspace }}\it-target
+        SERVICES_IT_REQUIRED: '1'
+      run: dotnet test Services.IntegrationTests/Services.IntegrationTests.csproj -c Release --logger "console;verbosity=normal"
+
+    - name: 上传集成测试日志 (Upload Integration Logs)
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: integration-logs-${{ github.sha }}
+        path: C:\ProgramData\windows_service_logs
+        retention-days: 7
+
     - name: 编译安装包 (Build MSI)
       run: msbuild Services.Installer/Services.Installer.wixproj /t:Build /p:Configuration=Release /p:Platform=x64
 
