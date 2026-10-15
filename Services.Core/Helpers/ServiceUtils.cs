@@ -16,6 +16,13 @@ namespace Services.Core.Helpers
         public const uint SERVICE_CHANGE_CONFIG = 0x0002;
         public const uint SERVICE_NO_CHANGE = 0xFFFFFFFF;
         public const uint SERVICE_CONFIG_DESCRIPTION = 1;
+        public const uint SERVICE_CONFIG_FAILURE_ACTIONS_FLAG = 4;
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct SERVICE_FAILURE_ACTIONS_FLAG
+        {
+            [MarshalAs(UnmanagedType.Bool)] public bool fFailureActionsOnNonCrashFailures;
+        }
 
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
         public struct SERVICE_DESCRIPTION
@@ -81,6 +88,42 @@ namespace Services.Core.Helpers
         [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode, EntryPoint = "ChangeServiceConfig2W")]
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool ChangeServiceConfig2(IntPtr hService, uint dwInfoLevel, ref SERVICE_DESCRIPTION lpInfo);
+
+        [DllImport("advapi32.dll", SetLastError = true, EntryPoint = "ChangeServiceConfig2W")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool ChangeServiceConfig2(IntPtr hService, uint dwInfoLevel, ref SERVICE_FAILURE_ACTIONS_FLAG lpInfo);
+
+        /// <summary>
+        /// 设置服务以非 0 退出码停止时是否也触发 SCM 恢复策略（默认仅进程崩溃时触发）
+        /// </summary>
+        public static void SetFailureActionsOnNonCrashFailures(string serviceName, bool enabled)
+        {
+            IntPtr scmHandle = OpenSCManager(null, null, SC_MANAGER_CONNECT);
+            if (scmHandle == IntPtr.Zero)
+                throw new Exception($"Failed to open SC Manager. Error: {Marshal.GetLastWin32Error()}");
+
+            try
+            {
+                IntPtr serviceHandle = OpenService(scmHandle, serviceName, SERVICE_CHANGE_CONFIG);
+                if (serviceHandle == IntPtr.Zero)
+                    throw new Exception($"Failed to open service. Error: {Marshal.GetLastWin32Error()}");
+
+                try
+                {
+                    var info = new SERVICE_FAILURE_ACTIONS_FLAG { fFailureActionsOnNonCrashFailures = enabled };
+                    if (!ChangeServiceConfig2(serviceHandle, SERVICE_CONFIG_FAILURE_ACTIONS_FLAG, ref info))
+                        throw new Exception($"Failed to set failure actions flag. Error: {Marshal.GetLastWin32Error()}");
+                }
+                finally
+                {
+                    CloseServiceHandle(serviceHandle);
+                }
+            }
+            finally
+            {
+                CloseServiceHandle(scmHandle);
+            }
+        }
 
         [DllImport("advapi32.dll", SetLastError = true)]
         public static extern bool CloseServiceHandle(IntPtr hSCObject);

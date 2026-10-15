@@ -27,6 +27,10 @@ namespace Services.Core.Services
         private int _restartCount = 0;
         private DateTime _lastRestartTime = DateTime.MinValue;
 
+        // 服务以失败状态停止时报告给 SCM 的 Win32 退出码
+        private const int ERROR_FILE_NOT_FOUND = 2;
+        private const int ERROR_PROCESS_ABORTED = 1067;
+
         public EmbeddedServiceWrapper(string serviceName)
         {
             _serviceName = serviceName;
@@ -39,6 +43,7 @@ namespace Services.Core.Services
             {
                 var config = LoadConfig();
                 LoadRestartPolicy();
+                SyncFailureActionsFlag();
 
                 InitLogger();
                 EnterJobObject();
@@ -155,6 +160,36 @@ namespace Services.Core.Services
         }
 
         /// <summary>
+        /// 使“非 0 退出也触发 SCM 恢复策略”与自动重启设置一致，让旧版本创建的服务无需编辑即可生效。
+        /// 低权限运行账户无权修改服务配置，失败时忽略（创建 / 编辑服务时已由管理端设置）。
+        /// </summary>
+        private void SyncFailureActionsFlag()
+        {
+            try
+            {
+                ServiceUtils.SetFailureActionsOnNonCrashFailures(_serviceName, _autoRestart);
+            }
+            catch { }
+        }
+
+        /// <summary>
+        /// 以失败状态停止服务：记录日志与 Windows 事件日志，并向 SCM 报告非 0 退出码。
+        /// 启用自动重启的服务会因此触发 SCM 恢复策略，稍后由 SCM 重新拉起。
+        /// </summary>
+        private void FailService(int exitCode, string reason)
+        {
+            LogSystem($"Service failed: {reason} (exit code {exitCode})");
+            try
+            {
+                EventLog.WriteEntry($"{_serviceName}: {reason}", EventLogEntryType.Error);
+            }
+            catch { }
+
+            ExitCode = exitCode;
+            Stop();
+        }
+
+        /// <summary>
         /// 按重启策略安排下一次重启。超过最大重启次数时返回 false。
         /// </summary>
         private bool TryScheduleRestart((string ExePath, string Args, string WorkingDir) config, string action)
@@ -165,7 +200,7 @@ namespace Services.Core.Services
             _restartCount++;
             if (_maxRestarts > 0 && _restartCount > _maxRestarts)
             {
-                LogSystem($"Max restarts ({_maxRestarts}) exceeded. Stopping.");
+                LogSystem($"Max restarts ({_maxRestarts}) exceeded.");
                 return false;
             }
 
@@ -221,16 +256,22 @@ namespace Services.Core.Services
 
                     if (_isStopping) return;
 
-                    if (!_autoRestart || exitCode == 0)
+                    if (exitCode == 0)
                     {
-                        LogSystem(exitCode == 0 ? "Normal exit, not restarting" : "AutoRestart disabled");
+                        LogSystem("Normal exit, not restarting");
                         Stop();
+                        return;
+                    }
+
+                    if (!_autoRestart)
+                    {
+                        FailService(ERROR_PROCESS_ABORTED, $"Process exited with code {exitCode} (AutoRestart disabled)");
                         return;
                     }
 
                     if (!TryScheduleRestart(config, "Restart"))
                     {
-                        Stop();
+                        FailService(ERROR_PROCESS_ABORTED, $"Process kept failing, gave up after {_maxRestarts} restarts (last exit code {exitCode})");
                     }
                 };
             }
@@ -242,14 +283,15 @@ namespace Services.Core.Services
                 if (ex is System.ComponentModel.Win32Exception win32Ex && 
                     (win32Ex.NativeErrorCode == 2 || win32Ex.NativeErrorCode == 3))
                 {
-                    LogSystem("FATAL: Executable not found. Service stopped.");
-                    Stop();
+                    FailService(ERROR_FILE_NOT_FOUND, $"Executable not found: {config.ExePath}");
                     return;
                 }
 
-                if (!_autoRestart) throw;
-
-                if (!TryScheduleRestart(config, "Retry")) throw;
+                // 重试由 Task 续延调用，异常会被吞掉导致服务停留在“运行中”却没有进程，因此不再抛出，统一以失败状态停止
+                if (!_autoRestart || !TryScheduleRestart(config, "Retry"))
+                {
+                    FailService(ERROR_PROCESS_ABORTED, $"Failed to start process: {ex.Message}");
+                }
             }
         }
     }

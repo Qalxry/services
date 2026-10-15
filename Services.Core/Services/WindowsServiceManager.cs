@@ -204,6 +204,9 @@ namespace Services.Core.Services
                     // Configure recovery actions: Restart service after 1 minute if it fails (e.g. dependencies not ready)
                     await RunCommandAsync("sc.exe", $"failure \"{serviceName}\" reset= 86400 actions= restart/60000/restart/60000/restart/60000");
 
+                    // 启用自动重启时，包装器放弃重启后以非 0 退出码停止，也交由上述恢复策略稍后重新拉起
+                    ServiceUtils.SetFailureActionsOnNonCrashFailures(serviceName, config.AutoRestart);
+
                     await LoadServicesAsync();
                     return serviceName;
                 }
@@ -263,6 +266,7 @@ namespace Services.Core.Services
             }
 
             SetServiceDescription(serviceId, BuildServiceDescription(config));
+            ServiceUtils.SetFailureActionsOnNonCrashFailures(serviceId, config.AutoRestart);
 
             await LoadServicesAsync();
         }
