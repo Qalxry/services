@@ -110,9 +110,12 @@ namespace Services.Cli
     internal sealed class MigrateResult
     {
         public bool Ok { get; set; } = true;
-        public string WrapperPath { get; set; } = "";
+        /// <summary>服务现在使用的包装器（受保护目录中的副本）；没有服务时为 null</summary>
+        public string? WrapperPath { get; set; }
         /// <summary>被修改了包装器路径的服务 ID</summary>
         public List<string> Migrated { get; set; } = new();
+        /// <summary>被删除的旧版本目录名</summary>
+        public List<string> RemovedVersions { get; set; } = new();
         public string Message { get; set; } = "";
     }
 

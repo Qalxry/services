@@ -50,6 +50,22 @@
       <RegistryValue Root="HKLM" Key="Software\ServicesApp" Name="CliInPath" Type="integer" Value="1" KeyPath="yes" />
     </Component>
 
+    <!--
+      安装 / 升级后执行 servicesctl migrate：将新版本包装器部署到 %ProgramData%\ServicesApp\wrapper，
+      把服务切换到新版本并清理不再使用的旧版本（运行中的服务重启后生效）。
+      服务运行的是该目录中的副本，因此升级时安装目录中的文件不会被锁定，无需停止服务。失败不影响安装。
+      卸载时不删除该目录：仍存在的服务依赖它继续运行；删除全部服务后执行 migrate 即可清空。
+    -->
+    <CustomAction Id="MigrateServiceWrappers"
+                  Directory="INSTALLFOLDER"
+                  ExeCommand="&quot;[INSTALLFOLDER]servicesctl.exe&quot; migrate"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+    <InstallExecuteSequence>
+      <Custom Action="MigrateServiceWrappers" Before="InstallFinalize" Condition="NOT (REMOVE~=&quot;ALL&quot;)" />
+    </InstallExecuteSequence>
+
     <Feature Id="Main" Title="ServicesApp">
       <ComponentGroupRef Id="AppFiles" />
       <ComponentGroupRef Id="CliFiles" />

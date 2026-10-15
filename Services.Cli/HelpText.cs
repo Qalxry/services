@@ -406,19 +406,26 @@ namespace Services.Cli
             """;
 
         public const string Migrate = $$"""
-            {{Tool}} migrate - 将所有服务的包装器路径更新为当前的 servicesvc.exe
+            {{Tool}} migrate - 将所有服务切换到当前版本的包装器，并清理旧版本
 
             用法:
               {{Tool}} migrate [--json]
 
             说明:
-              服务由包装器（ServicesApp 安装目录中的 servicesvc.exe）运行并监管目标程序。
-              旧版本创建的服务使用 ServicesApp.exe 作为包装器；安装目录变化后服务也会指向旧路径。
-              本命令将这些服务的包装器路径改为当前目录的 servicesvc.exe（ServicesApp 启动时也会自动执行）。
+              服务由包装器 servicesvc.exe 运行并监管目标程序。安装目录中的 servicesvc.exe 只是模板，
+              服务运行的是复制到受保护目录的副本：
+                %ProgramData%\ServicesApp\wrapper\<版本>-<哈希>\servicesvc.exe
+              该目录只有 SYSTEM 与管理员可修改，升级安装目录中的文件也不会被运行中的服务锁定。
+              本命令（ServicesApp 启动时与安装包安装后也会自动执行）:
+                1. 将当前目录的 servicesvc.exe 部署到上述目录（内容相同的版本直接复用）；
+                2. 将仍指向旧版本、安装目录或旧版 ServicesApp.exe 的服务改为指向该副本；
+                3. 删除不再被任何服务引用的旧版本目录。仍在运行旧版本的服务，其目录在服务重启后的
+                   下一次 migrate 中删除；没有任何服务时删除全部版本。
               正在运行的服务继续使用旧包装器，下次启动（或执行 restart）后生效。
 
             输出:
-              --json 时输出 { ok, wrapperPath, migrated: [服务ID...], message }。
+              --json 时输出 { ok, wrapperPath, migrated: [服务ID...], removedVersions: [目录名...], message }；
+              没有服务时 wrapperPath 为 null。
 
             权限: 需要管理员。
             """;

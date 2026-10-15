@@ -217,6 +217,25 @@ namespace Services.Core.Helpers
         }
 
         /// <summary>
+        /// 从服务的 ImagePath 中取出包装器程序路径：仅识别由本工具创建的包装器命令
+        /// （"&lt;程序&gt;" --service-wrapper "&lt;服务ID&gt;"），其他服务返回 null
+        /// </summary>
+        public static string? ParseWrapperExecutable(string? imagePath)
+        {
+            if (string.IsNullOrWhiteSpace(imagePath)) return null;
+            var text = imagePath.Trim();
+            if (!text.Contains(WrapperArgument, StringComparison.Ordinal)) return null;
+
+            if (text.StartsWith('"'))
+            {
+                int end = text.IndexOf('"', 1);
+                return end > 1 ? text.Substring(1, end - 1) : null;
+            }
+            int space = text.IndexOf(' ');
+            return space > 0 ? text.Substring(0, space) : null;
+        }
+
+        /// <summary>
         /// 将多行启动参数合并为单行命令行（各行去除首尾空白、忽略空行，以空格拼接）
         /// </summary>
         public static string NormalizeArgs(string? args)

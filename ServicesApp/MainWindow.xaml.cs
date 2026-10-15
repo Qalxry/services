@@ -110,17 +110,17 @@ namespace ServicesApp
         }
 
         /// <summary>
-        /// 将旧版本（以 ServicesApp.exe 为包装器）或安装目录变化后的服务迁移到当前的 servicesvc.exe，
+        /// 将服务切换到当前版本的包装器（受保护目录中的副本）并清理旧版本，
         /// 运行中的服务在下次启动时生效
         /// </summary>
         private async void MigrateWrapperInBackground()
         {
             try
             {
-                var migrated = await Task.Run(() => _serviceManager.MigrateWrapper());
-                if (migrated.Count > 0)
+                var result = await Task.Run(() => _serviceManager.MigrateWrapper());
+                if (result.Migrated.Count > 0)
                 {
-                    UpdateStatus($"已将 {migrated.Count} 个服务迁移到独立包装器 servicesvc.exe，正在运行的服务重启后生效。");
+                    UpdateStatus($"已将 {result.Migrated.Count} 个服务切换到当前版本的包装器，正在运行的服务重启后生效。");
                 }
             }
             catch (Exception ex)

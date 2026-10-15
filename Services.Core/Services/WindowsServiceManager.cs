@@ -9,9 +9,20 @@ using System.Threading.Tasks;
 using Microsoft.Win32;
 using Services.Core.Helpers;
 using Services.Core.Models;
+using Services.Core.Wrapper;
 
 namespace Services.Core.Services
 {
+    public sealed class WrapperMigrationResult
+    {
+        /// <summary>服务现在使用的包装器路径；没有服务或找不到模板时为 null</summary>
+        public string? WrapperPath { get; set; }
+        /// <summary>被修改了包装器路径的服务 ID</summary>
+        public List<string> Migrated { get; } = new();
+        /// <summary>被删除的旧版本目录名</summary>
+        public List<string> RemovedVersions { get; } = new();
+    }
+
     public class WindowsServiceManager : IDisposable
     {
         private Dictionary<string, Service> _services = new();
@@ -20,10 +31,28 @@ namespace Services.Core.Services
         private const int MaxConcurrentStatusQueries = 8;
 
         /// <summary>
-        /// 作为服务包装器注册的可执行文件路径。为空时优先使用同目录的 servicesvc.exe，
-        /// 不存在时（如开发调试）退回当前进程（ServicesApp.exe 兼容 --service-wrapper）。
+        /// 包装器模板路径。为空时使用同目录的 servicesvc.exe，不存在时（如开发调试）退回当前进程
+        /// （ServicesApp.exe 兼容 --service-wrapper）。servicesvc.exe 模板不会被服务直接运行，
+        /// 而是部署到受保护目录后再注册（见 <see cref="WrapperDeployment"/>）。
         /// </summary>
         public string? WrapperExePath { get; set; }
+
+        /// <summary>
+        /// 新建服务时注册的包装器：servicesvc.exe 模板部署到受保护目录后的副本；
+        /// 旧版兼容的 ServicesApp.exe（或当前进程）直接使用
+        /// </summary>
+        private string ResolveServiceWrapper()
+        {
+            var template = WrapperExePath ?? FindWrapperExecutable();
+            if (template != null && IsStandaloneWrapper(template))
+                return WrapperDeployment.Deploy(template);
+
+            return template ?? Process.GetCurrentProcess().MainModule?.FileName
+                ?? throw new Exception("Cannot determine current executable path");
+        }
+
+        private static bool IsStandaloneWrapper(string path) =>
+            string.Equals(Path.GetFileName(path), ServiceUtils.WrapperExeName, StringComparison.OrdinalIgnoreCase);
 
         /// <summary>
         /// 查找与当前程序同目录的独立包装器 servicesvc.exe，不存在时返回 null
@@ -35,15 +64,16 @@ namespace Services.Core.Services
         }
 
         /// <summary>
-        /// 将所有服务的 ImagePath 指向当前的独立包装器（旧版本创建的服务指向 ServicesApp.exe，
-        /// 或安装目录发生变化）。正在运行的服务在下次启动时生效。
+        /// 将所有服务的 ImagePath 指向当前包装器在受保护目录中的副本（旧版本创建的服务指向 ServicesApp.exe
+        /// 或安装目录中的 servicesvc.exe，或包装器已升级），并清理不再被引用的旧版本目录。
+        /// 正在运行的服务在下次启动时生效，其旧版本目录在服务重启后的下一次迁移中删除。
         /// </summary>
-        /// <returns>被修改的服务 ID；找不到 servicesvc.exe 时不做任何修改并返回空列表</returns>
-        public List<string> MigrateWrapper()
+        /// <returns>找不到 servicesvc.exe 模板时不做任何修改</returns>
+        public WrapperMigrationResult MigrateWrapper()
         {
-            var wrapper = WrapperExePath ?? FindWrapperExecutable();
-            var migrated = new List<string>();
-            if (wrapper == null) return migrated;
+            var result = new WrapperMigrationResult();
+            var template = WrapperExePath ?? FindWrapperExecutable();
+            if (template == null || !IsStandaloneWrapper(template)) return result;
 
             List<string> ids;
             lock (_lock)
@@ -51,20 +81,33 @@ namespace Services.Core.Services
                 ids = _services.Keys.ToList();
             }
 
+            var wrapped = new List<(string Id, string ImagePath)>();
             foreach (var id in ids)
             {
                 using var key = Registry.LocalMachine.OpenSubKey($@"SYSTEM\CurrentControlSet\Services\{id}");
                 var imagePath = key?.GetValue("ImagePath", null, RegistryValueOptions.DoNotExpandEnvironmentNames) as string;
-                var expected = ServiceUtils.BuildWrapperCommand(wrapper, id);
-
-                // 只处理由包装器运行的服务，且仅在路径不同时修改
-                if (imagePath == null || !imagePath.Contains(ServiceUtils.WrapperArgument, StringComparison.Ordinal)) continue;
-                if (string.Equals(imagePath.Trim(), expected, StringComparison.OrdinalIgnoreCase)) continue;
-
-                ChangeServiceBinaryPath(id, expected);
-                migrated.Add(id);
+                // 只处理由包装器运行的服务
+                if (imagePath != null && imagePath.Contains(ServiceUtils.WrapperArgument, StringComparison.Ordinal))
+                    wrapped.Add((id, imagePath));
             }
-            return migrated;
+
+            // 没有服务时不部署，只清理（删除全部服务后的残留版本由此清除）
+            if (wrapped.Count > 0)
+            {
+                var wrapper = WrapperDeployment.Deploy(template);
+                result.WrapperPath = wrapper;
+                foreach (var (id, imagePath) in wrapped)
+                {
+                    var expected = ServiceUtils.BuildWrapperCommand(wrapper, id);
+                    if (string.Equals(imagePath.Trim(), expected, StringComparison.OrdinalIgnoreCase)) continue;
+
+                    ChangeServiceBinaryPath(id, expected);
+                    result.Migrated.Add(id);
+                }
+            }
+
+            result.RemovedVersions.AddRange(WrapperDeployment.CleanupUnused());
+            return result;
         }
 
         private static void ChangeServiceBinaryPath(string serviceId, string binaryPath)
@@ -223,8 +266,7 @@ namespace Services.Core.Services
                         if (key != null) throw new Exception($"Service {serviceName} already exists");
                     }
 
-                    string currentExe = WrapperExePath ?? FindWrapperExecutable() ?? Process.GetCurrentProcess().MainModule?.FileName
-                        ?? throw new Exception("Cannot determine current executable path");
+                    string currentExe = ResolveServiceWrapper();
 
                     // Construct command safely
                     string wrapperCmd = ServiceUtils.BuildWrapperCommand(currentExe, serviceName);

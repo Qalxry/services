@@ -76,7 +76,7 @@ namespace Services.IntegrationTests
         {
             using var service = TestService.Create("Migrate", "", "--startup", "manual");
             var current = ReadImagePath(service.Id);
-            Assert.Contains(ItEnvironment.WrapperPath, current, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains(WrapperTests.WrapperRoot, current, StringComparison.OrdinalIgnoreCase);
 
             // 模拟旧版本创建的服务：包装器指向另一个位置
             var legacy = $"\"C:\\Legacy\\ServicesApp.exe\" --service-wrapper \"{service.Id}\"";
@@ -95,13 +95,13 @@ namespace Services.IntegrationTests
             Assert.Equal("running", service.State);
         }
 
-        private static string ReadImagePath(string id)
+        internal static string ReadImagePath(string id)
         {
             using var key = Registry.LocalMachine.OpenSubKey($@"SYSTEM\CurrentControlSet\Services\{id}")!;
             return (string)key.GetValue("ImagePath", "", RegistryValueOptions.DoNotExpandEnvironmentNames)!;
         }
 
-        private static void RunSc(params string[] args)
+        internal static void RunSc(params string[] args)
         {
             var psi = new ProcessStartInfo("sc.exe") { UseShellExecute = false, RedirectStandardOutput = true, CreateNoWindow = true };
             foreach (var arg in args) psi.ArgumentList.Add(arg);
