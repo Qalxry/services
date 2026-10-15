@@ -90,7 +90,7 @@ namespace ServicesApp
             // Startup log cleanup
             Task.Run(() =>
             {
-                try { _logManager.CleanupOldLogs(LogManager.GetGlobalRetentionDays()); }
+                try { _logManager.CleanupLogs(); }
                 catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"Startup cleanup failed: {ex}"); }
             });
 
@@ -751,12 +751,25 @@ namespace ServicesApp
                 VerticalAlignment = VerticalAlignment.Center,
                 Header = "保留天数"
             };
+            var maxSizeBox = new NumberBox
+            {
+                Value = LogManager.GetGlobalMaxTotalSizeMB(),
+                Minimum = 0,
+                Maximum = 1048576,
+                SmallChange = 128,
+                LargeChange = 1024,
+                SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline,
+                Width = 200,
+                VerticalAlignment = VerticalAlignment.Center,
+                Header = "日志总大小上限 (MB)"
+            };
 
             stack.Children.Add(infoStack);
             stack.Children.Add(new MenuFlyoutSeparator());
             stack.Children.Add(retentionHeader);
             stack.Children.Add(retentionBox);
-            stack.Children.Add(new TextBlock { Text = "修改后立即生效，过期日志会自动清理。", FontSize = 12, Opacity = 0.6 });
+            stack.Children.Add(maxSizeBox);
+            stack.Children.Add(new TextBlock { Text = "修改后立即生效，过期日志会自动清理；0 表示不限制总大小，超出上限时从最旧的日志开始删除。", FontSize = 12, Opacity = 0.6, TextWrapping = TextWrapping.Wrap });
 
             dialog.Content = stack;
 
@@ -766,9 +779,12 @@ namespace ServicesApp
                 try
                 {
                     int days = (int)retentionBox.Value;
+                    int maxSizeMB = double.IsNaN(maxSizeBox.Value) ? LogManager.GetGlobalMaxTotalSizeMB() : (int)maxSizeBox.Value;
                     LogManager.SetGlobalRetentionDays(days);
-                    _logManager.CleanupOldLogs(days);
-                    UpdateStatus($"设置已保存。已清理早于 {days} 天的日志。");
+                    LogManager.SetGlobalMaxTotalSizeMB(maxSizeMB);
+                    _logManager.CleanupOldLogs(days, maxSizeMB);
+                    var sizeText = maxSizeMB == 0 ? "不限制日志总大小" : $"日志总大小上限 {maxSizeMB} MB";
+                    UpdateStatus($"设置已保存。已清理早于 {days} 天的日志，{sizeText}。");
                 }
                 catch (Exception ex)
                 {
@@ -902,8 +918,7 @@ namespace ServicesApp
                     {
                         try 
                         { 
-                            var days = LogManager.GetGlobalRetentionDays();
-                            _logManager.CleanupOldLogs(days); 
+                            _logManager.CleanupLogs();
                         }
                         catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"Daily cleanup failed: {ex}"); }
                     }

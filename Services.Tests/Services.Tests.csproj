@@ -25,6 +25,7 @@
   <!-- 直接链接源文件：避免引用 win-x64 的 Exe 项目与 WinUI 项目（RID / XAML 问题） -->
   <ItemGroup>
     <Compile Include="..\Services.Cli\CommandLine.cs" Link="Linked\CommandLine.cs" />
+    <Compile Include="..\Services.Cli\LogTimeParser.cs" Link="Linked\LogTimeParser.cs" />
     <Compile Include="..\ServicesApp\AnsiParser.cs" Link="Linked\AnsiParser.cs" />
   </ItemGroup>
 

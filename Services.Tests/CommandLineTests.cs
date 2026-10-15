@@ -9,7 +9,8 @@ namespace Services.Tests
             string[]? valueOptions = null,
             string[]? flagOptions = null,
             int min = 0,
-            int max = 1) => new()
+            int max = 1,
+            IReadOnlyDictionary<string, string>? shortAliases = null) => new()
         {
             Name = "demo",
             Summary = "测试命令",
@@ -18,6 +19,7 @@ namespace Services.Tests
             FlagOptions = flagOptions ?? new[] { "auto-restart", "no-auto-restart", "force" },
             MinPositionals = min,
             MaxPositionals = max,
+            ShortAliases = shortAliases ?? new Dictionary<string, string>(),
             Handler = _ => Task.FromResult(0)
         };
 
@@ -162,6 +164,74 @@ namespace Services.Tests
             var ex = Assert.Throws<UsageException>(() => Parse(Spec(), token));
 
             Assert.Contains(token, ex.Message);
+        }
+
+        private static readonly Dictionary<string, string> Aliases = new() { ["f"] = "force", ["n"] = "name" };
+
+        [Fact]
+        public void Parse_ShortAlias_ActsLikeLongFlag()
+        {
+            var parsed = Parse(Spec(shortAliases: Aliases), "-f");
+
+            Assert.True(parsed.HasFlag("force"));
+            Assert.Empty(parsed.Positionals);
+        }
+
+        [Fact]
+        public void Parse_ShortAlias_ForValueOptionTakesNextToken()
+        {
+            var parsed = Parse(Spec(shortAliases: Aliases), "-n", "web", "svc");
+
+            Assert.Equal("web", parsed.GetValue("name"));
+            Assert.Equal(new[] { "svc" }, parsed.Positionals);
+        }
+
+        [Fact]
+        public void Parse_ShortAlias_ForValueOptionMissingValue_Throws()
+        {
+            var ex = Assert.Throws<UsageException>(() => Parse(Spec(shortAliases: Aliases), "-n"));
+
+            Assert.Contains("--name", ex.Message);
+        }
+
+        [Fact]
+        public void Parse_ShortAlias_MixedWithLongOptions()
+        {
+            var parsed = Parse(Spec(shortAliases: Aliases), "svc", "-f", "--name=x");
+
+            Assert.True(parsed.HasFlag("force"));
+            Assert.Equal("x", parsed.GetValue("name"));
+            Assert.Equal(new[] { "svc" }, parsed.Positionals);
+        }
+
+        [Fact]
+        public void Parse_ShortAlias_NotDeclared_Throws()
+        {
+            // 未声明别名的命令不接受 -f
+            var ex = Assert.Throws<UsageException>(() => Parse(Spec(), "-f"));
+
+            Assert.Contains("-f", ex.Message);
+        }
+
+        [Theory]
+        [InlineData("-x")]
+        [InlineData("-fn")]
+        [InlineData("-f=1")]
+        [InlineData("-F")]
+        public void Parse_ShortAlias_UnknownOrMalformed_Throws(string token)
+        {
+            var ex = Assert.Throws<UsageException>(() => Parse(Spec(shortAliases: Aliases), token));
+
+            Assert.Contains(token, ex.Message);
+        }
+
+        [Fact]
+        public void Parse_ShortAlias_AfterDoubleDash_IsPositional()
+        {
+            var parsed = Parse(Spec(shortAliases: Aliases), "--", "-f");
+
+            Assert.False(parsed.HasFlag("force"));
+            Assert.Equal(new[] { "-f" }, parsed.Positionals);
         }
 
         [Fact]

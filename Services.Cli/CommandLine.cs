@@ -42,6 +42,11 @@ namespace Services.Cli
         public required string Help { get; init; }
         public string[] ValueOptions { get; init; } = Array.Empty<string>();
         public string[] FlagOptions { get; init; } = Array.Empty<string>();
+        /// <summary>
+        /// 短选项别名：单个字符（不含 "-"）到长选项名（不含 "--"）的映射，如 { "f", "follow" } 使 -f 等同于 --follow。
+        /// 别名指向的长选项必须已在 ValueOptions 或 FlagOptions 中声明。
+        /// </summary>
+        public IReadOnlyDictionary<string, string> ShortAliases { get; init; } = new Dictionary<string, string>();
         public int MinPositionals { get; init; }
         public int MaxPositionals { get; init; }
         public bool RequiresAdmin { get; init; }
@@ -91,7 +96,8 @@ namespace Services.Cli
         }
 
         /// <summary>
-        /// 解析命令参数。支持 --name value、--name=value、-h；"--" 之后的参数一律视为位置参数。
+        /// 解析命令参数。支持 --name value、--name=value、-h 以及命令声明的短选项别名（如 -f）；
+        /// "--" 之后的参数一律视为位置参数。
         /// 未知选项直接报错，避免拼写错误被静默忽略。
         /// </summary>
         public static ParsedArgs Parse(CommandSpec spec, IReadOnlyList<string> tokens)
@@ -122,16 +128,24 @@ namespace Services.Cli
                     continue;
                 }
 
-                if (!token.StartsWith("--", StringComparison.Ordinal))
-                    throw new UsageException($"未知选项 '{token}'。选项需使用 --name 形式。", spec.Name);
-
-                var name = token.Substring(2);
+                string name;
                 string? inlineValue = null;
-                int eq = name.IndexOf('=');
-                if (eq >= 0)
+                if (!token.StartsWith("--", StringComparison.Ordinal))
                 {
-                    inlineValue = name.Substring(eq + 1);
-                    name = name.Substring(0, eq);
+                    // 短选项仅限命令声明的单字符别名，其余仍需使用 --name 形式
+                    if (token.Length != 2 || !spec.ShortAliases.TryGetValue(token.Substring(1), out var longName))
+                        throw new UsageException($"未知选项 '{token}'。选项需使用 --name 形式。", spec.Name);
+                    name = longName;
+                }
+                else
+                {
+                    name = token.Substring(2);
+                    int eq = name.IndexOf('=');
+                    if (eq >= 0)
+                    {
+                        inlineValue = name.Substring(eq + 1);
+                        name = name.Substring(0, eq);
+                    }
                 }
 
                 if (IsGlobalFlag(name) || spec.FlagOptions.Contains(name, StringComparer.OrdinalIgnoreCase))

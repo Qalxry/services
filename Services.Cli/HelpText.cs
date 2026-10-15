@@ -83,6 +83,7 @@ namespace Services.Cli
                   {{Tool}} create --name MyApp --exe "C:\Apps\my-app.exe" --args "--port 8080" --auto-restart --start
                   {{Tool}} update MyApp --max-restarts 0 --restart
                   {{Tool}} logs MyApp --tail 50 --stream stderr
+                  {{Tool}} logs MyApp -f
                   {{Tool}} delete MyApp
                 """;
         }
@@ -248,10 +249,10 @@ namespace Services.Cli
             """;
 
         public const string Logs = $$"""
-            {{Tool}} logs - 查看服务最新日志文件的末尾内容
+            {{Tool}} logs - 查看服务最新日志文件的末尾内容，或实时跟踪新日志
 
             用法:
-              {{Tool}} logs <服务> [--tail <行数>] [--stream <流>] [--raw] [--json]
+              {{Tool}} logs <服务> [--tail <行数>] [--stream <流>] [--since <时间>] [-f] [--raw] [--json]
 
             参数:
             {{ServiceArg}}
@@ -259,16 +260,36 @@ namespace Services.Cli
             选项:
               --tail <行数>         输出最后多少行（过滤后计数），0 表示全部，默认 200
               --stream <流>         all（默认）| stdout | stderr；包装器自身消息（system）始终输出
+              --since <时间>        只输出该时间及之后的行。支持 ISO 8601 时间（如 2026-10-15T10:20:30，
+                                    不带时区时按本地时间，也可带 Z 或 +08:00）或相对时长：
+                                    30s（秒）| 10m（分）| 2h（时）| 1d（天）。
+                                    没有时间戳的旧版本日志行无法判断时间，指定 --since 时不输出
+              -f, --follow          输出末尾内容后持续跟踪新写入的行（每 500ms 检查一次），按 Ctrl+C 退出（退出码 0）。
+                                    服务重启后会生成新的日志文件，此时自动切换并在 stderr 提示
               --raw                 保留 ANSI 颜色转义序列（默认去除）
 
             输出格式:
-              文本模式下每行保持日志文件原样：stdout 行无前缀，stderr 行以 "[stderr] " 开头，
-              包装器消息以 "[system] " 开头（如进程退出码、自动重启记录）。
-              --json 时输出 { id, logPath, lines: [{ stream, text }] }，text 已去除前缀。
+              文本模式下每行保持日志文件原样：行首为本地时间戳（yyyy-MM-ddTHH:mm:ss.fff），
+              其后 stdout 行无前缀，stderr 行以 "[stderr] " 开头，包装器消息以 "[system] " 开头
+              （如进程退出码、自动重启记录），例如:
+                2026-10-15T10:20:30.123 listening on :8080
+                2026-10-15T10:20:31.456 [stderr] connection refused
+                2026-10-15T10:20:32.001 [system] Process exited (code: 1)
+              旧版本写入的日志行没有时间戳，仍可正常显示。
+              --json 时输出 { id, logPath, lines: [{ timestamp, stream, text }] }，text 已去除前缀；
+              timestamp 为 ISO 8601 本地时间字符串（如 "2026-10-15T10:20:30.123"），旧格式行为 null。
+              --follow --json 时改为 JSON Lines：先输出末尾内容，再持续输出，
+              每行一个 { timestamp, stream, text } 对象（不含 id / logPath 外层结构）。
 
             说明:
               日志目录: %ProgramData%\windows_service_logs，每次服务启动生成一个新文件。
-              尚无日志时 logPath 为 null、lines 为空，退出码仍为 0。
+              日志总大小默认上限 1 GB，超出后自动删除最旧的文件（可在 GUI 应用设置中修改）。
+              尚无日志时 logPath 为 null、lines 为空，退出码仍为 0；--follow 时会等待日志生成。
+
+            示例:
+              {{Tool}} logs MyApp --since 10m
+              {{Tool}} logs MyApp -f --stream stderr
+              {{Tool}} logs MyApp --follow --json --tail 0
 
             权限: 普通权限即可。
             """;

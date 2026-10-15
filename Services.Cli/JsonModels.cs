@@ -56,6 +56,8 @@ namespace Services.Cli
 
     internal sealed class LogLineInfo
     {
+        /// <summary>写入时间（ISO 8601 本地时间，毫秒精度，如 2026-10-15T10:20:30.123）；旧版本日志无时间戳时为 null</summary>
+        public string? Timestamp { get; set; }
         /// <summary>stdout / stderr / system</summary>
         public string Stream { get; set; } = "";
         public string Text { get; set; } = "";
@@ -80,6 +82,7 @@ namespace Services.Cli
     [JsonSerializable(typeof(List<ServiceInfo>))]
     [JsonSerializable(typeof(ActionResult))]
     [JsonSerializable(typeof(LogsResult))]
+    [JsonSerializable(typeof(LogLineInfo))]
     [JsonSerializable(typeof(VersionInfo))]
     internal partial class CliJsonContext : JsonSerializerContext
     {
@@ -90,6 +93,16 @@ namespace Services.Cli
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
             WriteIndented = true,
+            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+        });
+
+        /// <summary>
+        /// 单行紧凑输出（JSON Lines，用于 logs --follow --json）
+        /// </summary>
+        public static CliJsonContext Compact { get; } = new(new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            WriteIndented = false,
             Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
         });
     }

@@ -58,6 +58,7 @@ namespace Services.Core.Services
                 SyncFailureActionsFlag();
 
                 InitLogger();
+                CleanupLogsInBackground();
                 EnterJobObject();
                 StartTargetProcess(config);
             }
@@ -71,7 +72,7 @@ namespace Services.Core.Services
 
         private void LogSystem(string message)
         {
-            _logger?.Log(LogLine.Format(LogLineKind.System, message));
+            _logger?.Log(LogLine.Format(LogLineKind.System, message, DateTime.Now));
         }
 
         private void InitLogger()
@@ -80,6 +81,19 @@ namespace Services.Core.Services
             Directory.CreateDirectory(logDir);
             var logFile = Path.Combine(logDir, $"{_serviceName}_{DateTime.Now:yyyyMMdd_HHmmss}.log");
             _logger = new AsyncLogger(logFile);
+        }
+
+        /// <summary>
+        /// 服务启动时按全局设置清理一次日志（GUI 未运行时也能生效）。
+        /// 在后台执行且吞掉所有异常，不影响服务启动；正在写入的日志文件无法删除，会被自动跳过。
+        /// </summary>
+        private void CleanupLogsInBackground()
+        {
+            Task.Run(() =>
+            {
+                try { new LogManager().CleanupLogs(); }
+                catch { }
+            });
         }
 
         /// <summary>
@@ -392,8 +406,8 @@ namespace Services.Core.Services
 
                 _process = new Process { StartInfo = psi };
 
-                _process.OutputDataReceived += (s, e) => { if (e.Data != null) _logger?.Log(LogLine.Format(LogLineKind.Stdout, e.Data)); };
-                _process.ErrorDataReceived += (s, e) => { if (e.Data != null) _logger?.Log(LogLine.Format(LogLineKind.Stderr, e.Data)); };
+                _process.OutputDataReceived += (s, e) => { if (e.Data != null) _logger?.Log(LogLine.Format(LogLineKind.Stdout, e.Data, DateTime.Now)); };
+                _process.ErrorDataReceived += (s, e) => { if (e.Data != null) _logger?.Log(LogLine.Format(LogLineKind.Stderr, e.Data, DateTime.Now)); };
 
                 if (!_process.Start())
                 {

@@ -23,6 +23,7 @@ namespace ServicesApp
         // 当前文件中最近的日志行（未过滤）与按 stdout/stderr 过滤后显示的行
         private readonly List<LogEntry> _allEntries = new();
         private readonly ObservableCollection<LogEntry> _logEntries = new();
+        private bool _showTimestamps = true;
         private long _lastPosition = 0;
         private string? _currentLogPath;
         private const int MaxLogLines = 3000;
@@ -49,6 +50,8 @@ namespace ServicesApp
             var wordWrap = LogManager.GetLogWordWrap();
             WrapCheck.IsChecked = wordWrap;
             ApplyWordWrap(wordWrap);
+            _showTimestamps = LogManager.GetLogShowTimestamps();
+            TimestampCheck.IsChecked = _showTimestamps;
 
             _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
             _timer.Tick += OnTimerTick;
@@ -97,6 +100,17 @@ namespace ServicesApp
             LogManager.SetLogWordWrap(wordWrap);
         }
 
+        private void OnShowTimestampsChanged(object sender, RoutedEventArgs e)
+        {
+            if (TimestampCheck == null || LogListView == null) return;
+
+            _showTimestamps = TimestampCheck.IsChecked != false;
+            LogManager.SetLogShowTimestamps(_showTimestamps);
+
+            foreach (var entry in _allEntries) entry.ShowTimestamp = _showTimestamps;
+            RebuildVisibleEntries();
+        }
+
         /// <summary>
         /// 切换换行模板；不换行时开启横向滚动
         /// </summary>
@@ -143,6 +157,7 @@ namespace ServicesApp
 
         private void AddEntry(LogEntry entry)
         {
+            entry.ShowTimestamp = _showTimestamps;
             _allEntries.Add(entry);
             if (_allEntries.Count > MaxLogLines)
             {

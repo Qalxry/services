@@ -18,16 +18,27 @@ namespace ServicesApp
         public LogLineKind Kind { get; }
         public string Text { get; }
 
-        public LogEntry(LogLineKind kind, string text)
+        /// <summary>
+        /// 写入时间；旧格式（无时间戳）的行为 null
+        /// </summary>
+        public DateTime? Timestamp { get; }
+
+        /// <summary>
+        /// 是否在行首显示时间戳（由所在日志窗口设置，仅对有时间戳的行生效）
+        /// </summary>
+        public bool ShowTimestamp { get; set; }
+
+        public LogEntry(LogLineKind kind, string text, DateTime? timestamp = null)
         {
             Kind = kind;
             Text = text;
+            Timestamp = timestamp;
         }
 
         public static LogEntry Parse(string line)
         {
-            var (kind, text) = LogLine.Parse(line);
-            return new LogEntry(kind, text);
+            var parsed = LogLine.Parse(line);
+            return new LogEntry(parsed.Kind, parsed.Text, parsed.Timestamp);
         }
     }
 
@@ -45,6 +56,8 @@ namespace ServicesApp
 
         private static readonly Dictionary<Color, SolidColorBrush> BrushCache = new();
         private static readonly SolidColorBrush TransparentBrush = new(Microsoft.UI.Colors.Transparent);
+        // 时间戳以半透明灰色弱化显示，深浅主题下均可读
+        private static readonly SolidColorBrush TimestampBrush = new(Color.FromArgb(0x99, 0x80, 0x80, 0x80));
 
         private static void OnEntryChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
         {
@@ -58,6 +71,15 @@ namespace ServicesApp
                 : TransparentBrush;
             textBlock.FontStyle = entry.Kind == LogLineKind.System ? Windows.UI.Text.FontStyle.Italic : Windows.UI.Text.FontStyle.Normal;
             textBlock.Opacity = entry.Kind == LogLineKind.System ? 0.7 : 1.0;
+
+            if (entry.ShowTimestamp && entry.Timestamp is DateTime timestamp)
+            {
+                textBlock.Inlines.Add(new Run
+                {
+                    Text = timestamp.ToString("HH:mm:ss.fff") + " ",
+                    Foreground = TimestampBrush
+                });
+            }
 
             var palette = IsDark(border) ? AnsiParser.DarkPalette : AnsiParser.LightPalette;
             foreach (var segment in AnsiParser.Parse(entry.Text, palette))

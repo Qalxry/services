@@ -5,6 +5,8 @@ namespace Services.Tests
 {
     public class LogLineTests
     {
+        private static readonly DateTime Stamp = new(2026, 10, 15, 10, 20, 30, 123);
+
         [Theory]
         [InlineData(LogLineKind.Stdout, "hello world")]
         [InlineData(LogLineKind.Stderr, "something failed")]
@@ -13,32 +15,122 @@ namespace Services.Tests
         [InlineData(LogLineKind.Stderr, "")]
         public void FormatThenParse_RoundTrips(LogLineKind kind, string text)
         {
-            var (parsedKind, parsedText) = LogLine.Parse(LogLine.Format(kind, text));
+            var parsed = LogLine.Parse(LogLine.Format(kind, text, Stamp));
 
-            Assert.Equal(kind, parsedKind);
-            Assert.Equal(text, parsedText);
+            Assert.Equal(kind, parsed.Kind);
+            Assert.Equal(text, parsed.Text);
+            Assert.Equal(Stamp, parsed.Timestamp);
         }
 
         [Fact]
-        public void Format_Stdout_IsWrittenAsIs()
+        public void Format_Stdout_HasTimestampPrefixOnly()
         {
-            Assert.Equal("plain", LogLine.Format(LogLineKind.Stdout, "plain"));
+            Assert.Equal("2026-10-15T10:20:30.123 plain", LogLine.Format(LogLineKind.Stdout, "plain", Stamp));
         }
 
         [Fact]
         public void Format_AddsTagsForStderrAndSystem()
         {
-            Assert.Equal("[stderr] boom", LogLine.Format(LogLineKind.Stderr, "boom"));
-            Assert.Equal("[system] started", LogLine.Format(LogLineKind.System, "started"));
+            Assert.Equal("2026-10-15T10:20:30.123 [stderr] boom", LogLine.Format(LogLineKind.Stderr, "boom", Stamp));
+            Assert.Equal("2026-10-15T10:20:30.123 [system] started", LogLine.Format(LogLineKind.System, "started", Stamp));
+        }
+
+        [Fact]
+        public void Format_PadsFieldsAndKeepsMilliseconds()
+        {
+            var stamp = new DateTime(2026, 1, 2, 3, 4, 5, 6);
+
+            Assert.Equal("2026-01-02T03:04:05.006 x", LogLine.Format(LogLineKind.Stdout, "x", stamp));
+        }
+
+        [Fact]
+        public void Format_IgnoresCurrentCulture()
+        {
+            var original = System.Globalization.CultureInfo.CurrentCulture;
+            try
+            {
+                System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo("ar-SA");
+
+                Assert.Equal("2026-10-15T10:20:30.123 x", LogLine.Format(LogLineKind.Stdout, "x", Stamp));
+            }
+            finally
+            {
+                System.Globalization.CultureInfo.CurrentCulture = original;
+            }
+        }
+
+        [Fact]
+        public void Parse_TimestampedLines_ExposeKindTextAndTimestamp()
+        {
+            var stdout = LogLine.Parse("2026-10-15T10:20:30.123 hello");
+            var stderr = LogLine.Parse("2026-10-15T10:20:31.456 [stderr] boom");
+            var system = LogLine.Parse("2026-10-15T10:20:32.001 [system] Process exited (code: 1)");
+
+            Assert.Equal(new ParsedLogLine(LogLineKind.Stdout, "hello", new DateTime(2026, 10, 15, 10, 20, 30, 123)), stdout);
+            Assert.Equal(new ParsedLogLine(LogLineKind.Stderr, "boom", new DateTime(2026, 10, 15, 10, 20, 31, 456)), stderr);
+            Assert.Equal(new ParsedLogLine(LogLineKind.System, "Process exited (code: 1)", new DateTime(2026, 10, 15, 10, 20, 32, 1)), system);
+        }
+
+        [Fact]
+        public void Parse_TimestampedLegacyErrorPrefix_IsStderr()
+        {
+            var parsed = LogLine.Parse("2026-10-15T10:20:30.123 ERROR: disk full");
+
+            Assert.Equal(LogLineKind.Stderr, parsed.Kind);
+            Assert.Equal("disk full", parsed.Text);
+            Assert.Equal(Stamp, parsed.Timestamp);
+        }
+
+        [Fact]
+        public void Parse_TimestampOnly_YieldsEmptyText()
+        {
+            // 空文本的行写入时为“时间戳 + 空格”；末尾空格被去掉时同样接受
+            foreach (var line in new[] { "2026-10-15T10:20:30.123 ", "2026-10-15T10:20:30.123" })
+            {
+                var parsed = LogLine.Parse(line);
+
+                Assert.Equal(LogLineKind.Stdout, parsed.Kind);
+                Assert.Equal(string.Empty, parsed.Text);
+                Assert.Equal(Stamp, parsed.Timestamp);
+            }
+        }
+
+        [Fact]
+        public void Parse_OnlyFirstTimestampIsRemoved()
+        {
+            var parsed = LogLine.Parse("2026-10-15T10:20:30.123 2026-10-15T09:00:00.000 inner");
+
+            Assert.Equal("2026-10-15T09:00:00.000 inner", parsed.Text);
+            Assert.Equal(Stamp, parsed.Timestamp);
+        }
+
+        [Theory]
+        [InlineData("2026-13-15T10:20:30.123 invalid month")]
+        [InlineData("2026-10-15T25:20:30.123 invalid hour")]
+        [InlineData("2026-10-15T10:20:30 no milliseconds")]
+        [InlineData("2026-10-15 10:20:30.123 space instead of T")]
+        [InlineData("2026-10-15T10:20:30.123Z zone suffix")]
+        [InlineData("2026-10-15T10:20:30.123x not followed by a space")]
+        [InlineData("2026-10-15T10:20:30.12 short milliseconds")]
+        [InlineData(" 2026-10-15T10:20:30.123 leading space")]
+        [InlineData("abcd-ef-ghTij:kl:mn.opq text")]
+        public void Parse_InvalidTimestamp_IsPlainText(string line)
+        {
+            var parsed = LogLine.Parse(line);
+
+            Assert.Equal(LogLineKind.Stdout, parsed.Kind);
+            Assert.Equal(line, parsed.Text);
+            Assert.Null(parsed.Timestamp);
         }
 
         [Fact]
         public void Parse_LegacyErrorPrefix_IsStderr()
         {
-            var (kind, text) = LogLine.Parse("ERROR: disk full");
+            var (kind, text, timestamp) = LogLine.Parse("ERROR: disk full");
 
             Assert.Equal(LogLineKind.Stderr, kind);
             Assert.Equal("disk full", text);
+            Assert.Null(timestamp);
         }
 
         [Theory]
@@ -50,16 +142,17 @@ namespace Services.Tests
         [InlineData("[stderr]no space is not a tag")]
         public void Parse_OrdinaryLine_IsStdoutUnchanged(string line)
         {
-            var (kind, text) = LogLine.Parse(line);
+            var (kind, text, timestamp) = LogLine.Parse(line);
 
             Assert.Equal(LogLineKind.Stdout, kind);
             Assert.Equal(line, text);
+            Assert.Null(timestamp);
         }
 
         [Fact]
         public void Parse_OnlyFirstTagIsRemoved()
         {
-            var (kind, text) = LogLine.Parse("[stderr] [system] nested");
+            var (kind, text, _) = LogLine.Parse("[stderr] [system] nested");
 
             Assert.Equal(LogLineKind.Stderr, kind);
             Assert.Equal("[system] nested", text);
@@ -68,7 +161,7 @@ namespace Services.Tests
         [Fact]
         public void Parse_TagOnly_YieldsEmptyText()
         {
-            var (kind, text) = LogLine.Parse("[system] ");
+            var (kind, text, _) = LogLine.Parse("[system] ");
 
             Assert.Equal(LogLineKind.System, kind);
             Assert.Equal(string.Empty, text);
