@@ -36,17 +36,24 @@ namespace Services.Tests
                 return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [$"{property.Name}Key{seed}"] = $"value-{seed}" };
             }
 
+            if (type == typeof(IReadOnlyList<string>))
+            {
+                return new List<string> { $"{property.Name}Item{seed}", $"{property.Name}Other{seed}" };
+            }
+
             throw new NotSupportedException(
                 $"测试辅助方法尚不支持属性 {property.DeclaringType!.Name}.{property.Name} 的类型 {type}，请扩展 NonDefaultValue。");
         }
 
         /// <summary>
-        /// 属性值比较：字典按内容比较，其余按 Equals
+        /// 属性值比较：字典与字符串列表按内容比较，其余按 Equals
         /// </summary>
         private static bool ValuesEqual(object? left, object? right)
         {
             if (left is IReadOnlyDictionary<string, string> a && right is IReadOnlyDictionary<string, string> b)
                 return a.Count == b.Count && a.All(pair => b.TryGetValue(pair.Key, out var value) && value == pair.Value);
+            if (left is IReadOnlyList<string> x && right is IReadOnlyList<string> y)
+                return x.SequenceEqual(y);
             return Equals(left, right);
         }
 
@@ -109,6 +116,50 @@ namespace Services.Tests
 
             var config = ServiceConfig.FromService(new Service { Environment = new Dictionary<string, string> { ["Path"] = "x" } });
             Assert.Equal("x", config.Environment["PATH"]);
+        }
+
+        [Fact]
+        public void CopyFrom_DoesNotShareDependenciesInstance()
+        {
+            var source = new Service { Dependencies = new List<string> { "Tcpip" } };
+            var target = new Service();
+
+            target.CopyFrom(source);
+
+            Assert.NotSame(source.Dependencies, target.Dependencies);
+            Assert.Equal(new[] { "Tcpip" }, target.Dependencies);
+        }
+
+        [Fact]
+        public void FromService_DoesNotShareDependenciesInstance()
+        {
+            var service = new Service { Dependencies = new List<string> { "Tcpip" } };
+
+            var config = ServiceConfig.FromService(service);
+
+            Assert.NotSame(service.Dependencies, config.Dependencies);
+            Assert.Equal(new[] { "Tcpip" }, config.Dependencies);
+        }
+
+        [Fact]
+        public void DependenciesAndDelayedAutoStart_DefaultToOldBehavior()
+        {
+            Assert.Empty(new Service().Dependencies);
+            Assert.Empty(new ServiceConfig().Dependencies);
+            Assert.NotSame(new Service().Dependencies, new Service().Dependencies);
+            Assert.False(new Service().DelayedAutoStart);
+            Assert.False(new ServiceConfig().DelayedAutoStart);
+        }
+
+        [Fact]
+        public void CopyFrom_CopiesDelayedAutoStart()
+        {
+            var target = new Service();
+
+            target.CopyFrom(new Service { StartupType = ServiceStartupType.Auto, DelayedAutoStart = true });
+
+            Assert.True(target.DelayedAutoStart);
+            Assert.True(target.AutoStart);
         }
 
         [Fact]

@@ -590,7 +590,7 @@ namespace ServicesApp
             AddRow("服务 ID", service.Id, true);
             AddRow("描述", service.Description);
             AddRow("状态", service.HasPid ? $"{service.Status} (PID {service.Pid})" : service.Status);
-            AddRow("启动类型", GetStartupTypeText(service.StartupType));
+            AddRow("启动类型", ServiceStartupModes.ToDisplayName(service.StartupType, service.DelayedAutoStart));
             AddRow("失败自动重启", service.AutoRestart ? GetRestartPolicyText(service) : "未启用");
             AddRow("停止方式", GetStopPolicyText(service));
             AddRow("运行账户", service.AccountName, true);
@@ -598,6 +598,7 @@ namespace ServicesApp
             AddRow("工作目录", service.WorkingDir, true);
             AddRow("启动参数", service.Args, true);
             AddRow("环境变量", EnvironmentVariables.Format(service.Environment), true);
+            AddRow("依赖服务", ServiceDependencies.Format(service.Dependencies), true);
             AddRow("创建时间", service.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss"));
 
             var dialog = new ContentDialog
@@ -634,14 +635,6 @@ namespace ServicesApp
             ServiceStopMode.CtrlC => $"发送 Ctrl+C（{service.StopTimeoutSeconds} 秒未退出则强制结束）",
             ServiceStopMode.Command => $"执行停止命令：{service.StopCommand}（{service.StopTimeoutSeconds} 秒未退出则强制结束）",
             _ => "直接结束进程"
-        };
-
-        private static string GetStartupTypeText(ServiceStartupType type) => type switch
-        {
-            ServiceStartupType.Auto => "开机自启",
-            ServiceStartupType.Manual => "手动启动",
-            ServiceStartupType.Disabled => "已禁用",
-            _ => "未知"
         };
 
         private async void OnAddServiceClick(object sender, RoutedEventArgs e)

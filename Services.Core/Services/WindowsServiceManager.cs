@@ -167,6 +167,7 @@ namespace Services.Core.Services
                 WorkingDir = s.WorkingDir,
                 Description = s.Description,
                 StartupType = s.StartupType,
+                DelayedAutoStart = s.DelayedAutoStart,
                 AutoRestart = s.AutoRestart,
                 RestartDelaySeconds = s.RestartDelaySeconds,
                 MaxRestarts = s.MaxRestarts,
@@ -178,6 +179,7 @@ namespace Services.Core.Services
                 AccountType = s.AccountType,
                 AccountName = s.AccountName,
                 Environment = EnvironmentVariables.Clone(s.Environment),
+                Dependencies = ServiceDependencies.Clone(s.Dependencies),
                 CreatedAt = s.CreatedAt,
                 UpdatedAt = s.UpdatedAt
             };
@@ -209,6 +211,8 @@ namespace Services.Core.Services
         public async Task<string> CreateServiceAsync(ServiceConfig config, string? password = null)
                 {
                     ValidateConfig(config);
+                    var dependencies = ValidateDependencies(config, null, null);
+                    bool delayedAutoStart = ServiceStartupModes.NormalizeDelayed(config.StartupType, config.DelayedAutoStart);
                     PrepareUserAccount(config, password);
 
                     string serviceName = GenerateServiceName(config.Name);
@@ -243,7 +247,7 @@ namespace Services.Core.Services
                             wrapperCmd,
                             null,
                             IntPtr.Zero,
-                            null,
+                            dependencies.Count > 0 ? ServiceDependencies.BuildMultiString(dependencies) : null,
                             null,
                             null);
 
@@ -301,6 +305,19 @@ namespace Services.Core.Services
                         }
                     }
 
+                    if (delayedAutoStart)
+                    {
+                        try
+                        {
+                            ServiceUtils.SetDelayedAutoStart(serviceName, true);
+                        }
+                        catch (Exception ex)
+                        {
+                            DeleteServiceRegistration(serviceName);
+                            throw new Exception($"Failed to configure delayed auto start: {ex.Message}");
+                        }
+                    }
+
                     EnsureEventSource(serviceName);
 
                     SetServiceDescription(serviceName, BuildServiceDescription(config));
@@ -328,6 +345,10 @@ namespace Services.Core.Services
             }
 
             ValidateConfig(config);
+            var dependencies = ValidateDependencies(config, serviceId, existing.Dependencies);
+            // 依赖未变化时不重写（null 表示不修改），以免丢失本工具不展示的依赖组（+Group）
+            bool dependenciesChanged = !ServiceDependencies.SameSet(dependencies, existing.Dependencies);
+            bool delayedAutoStart = ServiceStartupModes.NormalizeDelayed(config.StartupType, config.DelayedAutoStart);
 
             bool accountChanged = config.AccountType != existing.AccountType ||
                 (config.AccountType == ServiceAccountType.User &&
@@ -357,7 +378,7 @@ namespace Services.Core.Services
                             null,
                             null,
                             IntPtr.Zero,
-                            null,
+                            dependenciesChanged ? ServiceDependencies.BuildMultiString(dependencies) : null,
                             null,
                             null,
                             config.Name))
@@ -381,6 +402,12 @@ namespace Services.Core.Services
 
             SetServiceDescription(serviceId, BuildServiceDescription(config));
             ServiceUtils.SetFailureActionsOnNonCrashFailures(serviceId, config.AutoRestart);
+
+            // 延迟标志只对自动启动的服务有效；非自动启动时保留原标志（切回自动启动时会重新设置）
+            if (config.StartupType == ServiceStartupType.Auto)
+            {
+                ServiceUtils.SetDelayedAutoStart(serviceId, delayedAutoStart);
+            }
 
             if (accountChanged || (config.AccountType == ServiceAccountType.User && password != null))
             {
@@ -495,6 +522,25 @@ namespace Services.Core.Services
                 throw new ArgumentException("Stop command is required when stop mode is 'command'.");
 
             EnvironmentVariables.Validate(config.Environment);
+        }
+
+        /// <summary>
+        /// 校验并规范化依赖服务：格式合法、不依赖自身、依赖的服务在系统中存在。
+        /// 更新时，本来就已存在于该服务依赖中的项不再检查是否存在（避免被卸载的旧依赖阻止修改其他配置）。
+        /// </summary>
+        /// <param name="serviceId">更新时为服务自身的 ID（禁止依赖自身）；创建时为 null</param>
+        /// <param name="currentDependencies">更新时服务当前的依赖；创建时为 null</param>
+        /// <returns>规范化（去空白、去重）后的依赖列表</returns>
+        private static List<string> ValidateDependencies(ServiceConfig config, string? serviceId, IReadOnlyList<string>? currentDependencies)
+        {
+            var dependencies = ServiceDependencies.Normalize(config.Dependencies);
+            ServiceDependencies.Validate(dependencies, serviceId);
+
+            var current = new HashSet<string>(currentDependencies ?? Array.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+            ServiceDependencies.EnsureExist(
+                dependencies.Where(name => !current.Contains(name)),
+                ServiceUtils.ServiceExists);
+            return dependencies;
         }
 
         private static void WriteParameters(RegistryKey paramsKey, ServiceConfig config)
@@ -815,6 +861,7 @@ namespace Services.Core.Services
             var stopTimeoutSeconds = paramsKey.GetValue("StopTimeoutSeconds") is int stopTimeoutVal && stopTimeoutVal > 0
                 ? stopTimeoutVal : StopPolicyDefaults.TimeoutSeconds;
             var environment = EnvironmentVariables.ParseLenient(paramsKey.GetValue("Environment") as string[]);
+            var dependencies = ServiceDependencies.ParseRegistry(serviceKey.GetValue("DependOnService") as string[]);
 
             var createdAtStr = paramsKey.GetValue("CreatedAt") as string;
             DateTime createdAt = DateTime.Now;
@@ -825,6 +872,9 @@ namespace Services.Core.Services
             var startupType = ServiceStartupType.Auto;
             if (serviceKey.GetValue("Start") is int startVal && Enum.IsDefined(typeof(ServiceStartupType), startVal))
                 startupType = (ServiceStartupType)startVal;
+            // 延迟自动启动标志位于服务键（不是 Parameters），且只在自动启动类型下有效
+            bool delayedAutoStart = ServiceStartupModes.NormalizeDelayed(
+                startupType, serviceKey.GetValue("DelayedAutostart") is int delayedVal && delayedVal == 1);
 
             var (status, pid) = ServiceUtils.GetServiceStatus(serviceName);
 
@@ -847,9 +897,11 @@ namespace Services.Core.Services
                 AccountType = ServiceAccounts.ParseObjectName(accountName),
                 AccountName = string.IsNullOrWhiteSpace(accountName) ? ServiceAccounts.LocalSystemName : accountName,
                 Environment = environment,
+                Dependencies = dependencies,
                 CreatedAt = createdAt,
                 UpdatedAt = DateTime.Now,
                 StartupType = startupType,
+                DelayedAutoStart = delayedAutoStart,
                 Status = status,
                 Pid = pid
             };

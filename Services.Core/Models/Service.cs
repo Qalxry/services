@@ -17,6 +17,7 @@ namespace Services.Core.Models
         private string? _description;
         private bool _autoRestart;
         private ServiceStartupType _startupType = ServiceStartupType.Auto;
+        private bool _delayedAutoStart;
 
         public string Id { get; set; } = string.Empty;
 
@@ -84,6 +85,13 @@ namespace Services.Core.Models
 
         public bool AutoStart => StartupType == ServiceStartupType.Auto;
 
+        /// <summary>延迟自动启动（开机后稍晚启动）；仅在启动类型为 Auto 时有意义</summary>
+        public bool DelayedAutoStart
+        {
+            get => _delayedAutoStart;
+            set => SetField(ref _delayedAutoStart, value);
+        }
+
         public bool AutoRestart
         {
             get => _autoRestart;
@@ -106,6 +114,9 @@ namespace Services.Core.Models
         /// <summary>服务级环境变量（启动目标程序时叠加在继承的环境之上，值可用 %VAR% 引用现有变量）；变量名不区分大小写</summary>
         public IReadOnlyDictionary<string, string> Environment { get; set; } = EnvironmentVariables.Clone(null);
 
+        /// <summary>本服务启动前需先启动的服务名（Windows 服务名，可以是任意服务）；名称不区分大小写</summary>
+        public IReadOnlyList<string> Dependencies { get; set; } = ServiceDependencies.Clone(null);
+
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }
 
@@ -122,6 +133,7 @@ namespace Services.Core.Models
             Status = other.Status;
             Pid = other.Pid;
             StartupType = other.StartupType;
+            DelayedAutoStart = other.DelayedAutoStart;
             AutoRestart = other.AutoRestart;
             RestartDelaySeconds = other.RestartDelaySeconds;
             MaxRestarts = other.MaxRestarts;
@@ -133,6 +145,7 @@ namespace Services.Core.Models
             AccountType = other.AccountType;
             AccountName = other.AccountName;
             Environment = EnvironmentVariables.Clone(other.Environment);
+            Dependencies = ServiceDependencies.Clone(other.Dependencies);
             CreatedAt = other.CreatedAt;
             UpdatedAt = other.UpdatedAt;
         }
@@ -173,6 +186,10 @@ namespace Services.Core.Models
         /// <summary>服务级环境变量；变量名不区分大小写，空表示不额外设置</summary>
         public IReadOnlyDictionary<string, string> Environment { get; set; } = EnvironmentVariables.Clone(null);
         public ServiceStartupType StartupType { get; set; } = ServiceStartupType.Auto;
+        /// <summary>延迟自动启动；仅在启动类型为 Auto 时有效，其他类型保存时按 false 处理</summary>
+        public bool DelayedAutoStart { get; set; }
+        /// <summary>本服务启动前需先启动的服务名；保存前会规范化（去空白、去重）。空表示无依赖</summary>
+        public IReadOnlyList<string> Dependencies { get; set; } = ServiceDependencies.Clone(null);
 
         /// <summary>
         /// 以已有服务的当前配置为基础创建配置（用于部分字段更新）
@@ -197,7 +214,9 @@ namespace Services.Core.Models
                 AccountType = service.AccountType,
                 AccountName = service.AccountName,
                 Environment = EnvironmentVariables.Clone(service.Environment),
-                StartupType = service.StartupType
+                StartupType = service.StartupType,
+                DelayedAutoStart = service.DelayedAutoStart,
+                Dependencies = ServiceDependencies.Clone(service.Dependencies)
             };
         }
     }

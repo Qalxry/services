@@ -140,6 +140,35 @@ namespace Services.Tests
         }
 
         [Fact]
+        public void Parse_DependsOn_RepeatableValuesAndClearDependsFlag()
+        {
+            var spec = Spec(
+                valueOptions: new[] { "startup", "depends-on" },
+                flagOptions: new[] { "clear-depends" },
+                repeatableOptions: new[] { "depends-on" });
+
+            var parsed = Parse(spec, "--startup", "delayed-auto", "--depends-on", "Tcpip", "--depends-on=MySQL80", "--depends-on", "WinSvcMgr_Api_1a2b3c4d");
+
+            Assert.Equal("delayed-auto", parsed.GetValue("startup"));
+            Assert.Equal(new[] { "Tcpip", "MySQL80", "WinSvcMgr_Api_1a2b3c4d" }, parsed.GetValues("depends-on"));
+            Assert.False(parsed.HasFlag("clear-depends"));
+
+            var cleared = Parse(spec, "--clear-depends");
+            Assert.True(cleared.HasFlag("clear-depends"));
+            Assert.Empty(cleared.GetValues("depends-on"));
+        }
+
+        [Fact]
+        public void Parse_DependsOn_MissingValueIsError()
+        {
+            var spec = Spec(valueOptions: new[] { "depends-on" }, repeatableOptions: new[] { "depends-on" });
+
+            var ex = Assert.Throws<UsageException>(() => Parse(spec, "--depends-on"));
+
+            Assert.Contains("--depends-on", ex.Message);
+        }
+
+        [Fact]
         public void GetValues_NotProvided_ReturnsEmpty()
         {
             var parsed = Parse(Spec(repeatableOptions: new[] { "env" }));

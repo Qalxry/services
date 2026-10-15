@@ -21,12 +21,12 @@ namespace Services.Cli
 
         private static readonly string[] ConfigValueOptions =
             { "exe", "workdir", "args", "description", "startup", "restart-delay", "max-restarts", "restart-reset",
-              "stop-mode", "stop-command", "stop-timeout", "account", "env", "unset-env" };
+              "stop-mode", "stop-command", "stop-timeout", "account", "env", "unset-env", "depends-on" };
 
-        private static readonly string[] ConfigRepeatableOptions = { "env", "unset-env" };
+        private static readonly string[] ConfigRepeatableOptions = { "env", "unset-env", "depends-on" };
 
         private static readonly string[] ConfigFlagOptions =
-            { "auto-restart", "no-auto-restart", "backoff", "no-backoff", "password-stdin", "clear-env" };
+            { "auto-restart", "no-auto-restart", "backoff", "no-backoff", "password-stdin", "clear-env", "clear-depends" };
 
         private static readonly List<CommandSpec> Commands = new()
         {
@@ -194,7 +194,7 @@ namespace Services.Cli
 
             var rows = services.Select(s => new[]
             {
-                s.Id, s.Name, s.Status, s.HasPid ? s.Pid.ToString() : "-", ToStartupText(s.StartupType), s.ExePath
+                s.Id, s.Name, s.Status, s.HasPid ? s.Pid.ToString() : "-", ToStartupText(s.StartupType, s.DelayedAutoStart), s.ExePath
             }).ToList();
             WriteTable(new[] { "ID", "名称", "状态", "PID", "启动类型", "程序路径" }, rows);
             return ExitCodes.Success;
@@ -541,13 +541,10 @@ namespace Services.Cli
             }
             if (args.GetValue("startup") is { } startup)
             {
-                config.StartupType = startup.ToLowerInvariant() switch
-                {
-                    "auto" => ServiceStartupType.Auto,
-                    "manual" => ServiceStartupType.Manual,
-                    "disabled" => ServiceStartupType.Disabled,
-                    _ => throw new UsageException($"--startup 只能是 auto、manual 或 disabled，实际为 '{startup}'。", args.Command)
-                };
+                if (!ServiceStartupModes.TryParse(startup, out var startupType, out var delayedAutoStart))
+                    throw new UsageException($"--startup 只能是 auto、delayed-auto、manual 或 disabled，实际为 '{startup}'。", args.Command);
+                config.StartupType = startupType;
+                config.DelayedAutoStart = delayedAutoStart;
                 changed++;
             }
             if (args.GetSwitch("auto-restart", "no-auto-restart") is { } autoRestart)
@@ -640,6 +637,33 @@ namespace Services.Cli
                     }
                 }
                 config.Environment = environment;
+                changed++;
+            }
+
+            // 依赖服务：--depends-on 以给定列表整体替换原依赖，--clear-depends 清空
+            var dependsOn = args.GetValues("depends-on");
+            if (args.HasFlag("clear-depends") && dependsOn.Count > 0)
+                throw new UsageException("--clear-depends 不能与 --depends-on 同时使用。", args.Command);
+            if (args.HasFlag("clear-depends"))
+            {
+                config.Dependencies = new List<string>();
+                changed++;
+            }
+            else if (dependsOn.Count > 0)
+            {
+                if (dependsOn.Any(string.IsNullOrWhiteSpace))
+                    throw new UsageException("--depends-on 的服务名不能为空（清空依赖请使用 --clear-depends）。", args.Command);
+
+                var dependencies = ServiceDependencies.Normalize(dependsOn);
+                try
+                {
+                    ServiceDependencies.Validate(dependencies);
+                }
+                catch (ArgumentException ex)
+                {
+                    throw new UsageException($"--depends-on 参数错误：{ex.Message}", args.Command);
+                }
+                config.Dependencies = dependencies;
                 changed++;
             }
 
@@ -833,7 +857,7 @@ namespace Services.Cli
                 },
                 StatusText = s.Status,
                 Pid = s.HasPid ? s.Pid : null,
-                StartupType = s.StartupType.ToString().ToLowerInvariant(),
+                StartupType = ServiceStartupModes.ToCliValue(s.StartupType, s.DelayedAutoStart),
                 ExePath = s.ExePath,
                 Args = s.Args,
                 CommandLineArgs = ServiceUtils.NormalizeArgs(s.Args),
@@ -860,6 +884,7 @@ namespace Services.Cli
                 Environment = s.Environment
                     .OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
                     .ToDictionary(pair => pair.Key, pair => pair.Value),
+                Dependencies = s.Dependencies.ToList(),
                 CreatedAt = s.CreatedAt,
                 LatestLogPath = logManager.GetLatestLogPath(s.Id)
             };
@@ -872,9 +897,9 @@ namespace Services.Cli
             _ => "kill"
         };
 
-        private static string ToStartupText(ServiceStartupType type) => type switch
+        private static string ToStartupText(ServiceStartupType type, bool delayed) => type switch
         {
-            ServiceStartupType.Auto => "开机自启",
+            ServiceStartupType.Auto => delayed ? "延迟自启" : "开机自启",
             ServiceStartupType.Manual => "手动",
             ServiceStartupType.Disabled => "已禁用",
             _ => "未知"
@@ -901,7 +926,7 @@ namespace Services.Cli
                 ("名称", info.Name),
                 ("描述", info.Description),
                 ("状态", info.Pid is { } pid ? $"{info.StatusText} (PID {pid})" : info.StatusText),
-                ("启动类型", info.StartupType),
+                ("启动类型", info.StartupType == "delayed-auto" ? "delayed-auto（延迟自动启动）" : info.StartupType),
                 ("失败自动重启", restartText),
                 ("停止方式", stopText),
                 ("运行账户", info.Account.Name),
@@ -909,6 +934,7 @@ namespace Services.Cli
                 ("工作目录", info.WorkingDir),
                 ("启动参数", info.CommandLineArgs),
                 ("环境变量", string.Join("\n", info.Environment.Select(pair => $"{pair.Key}={pair.Value}"))),
+                ("依赖服务", ServiceDependencies.Format(info.Dependencies)),
                 ("创建时间", info.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss")),
                 ("最新日志", info.LatestLogPath),
             };

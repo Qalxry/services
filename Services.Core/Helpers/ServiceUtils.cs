@@ -16,7 +16,10 @@ namespace Services.Core.Helpers
         public const uint SERVICE_CHANGE_CONFIG = 0x0002;
         public const uint SERVICE_NO_CHANGE = 0xFFFFFFFF;
         public const uint SERVICE_CONFIG_DESCRIPTION = 1;
+        public const uint SERVICE_CONFIG_DELAYED_AUTO_START_INFO = 3;
         public const uint SERVICE_CONFIG_FAILURE_ACTIONS_FLAG = 4;
+        private const int ERROR_INVALID_NAME = 123;
+        private const int ERROR_SERVICE_DOES_NOT_EXIST = 1060;
 
         /// <summary>独立服务包装器的文件名，与 ServicesApp.exe / servicesctl.exe 位于同一目录</summary>
         public const string WrapperExeName = "servicesvc.exe";
@@ -27,6 +30,12 @@ namespace Services.Core.Helpers
         public struct SERVICE_FAILURE_ACTIONS_FLAG
         {
             [MarshalAs(UnmanagedType.Bool)] public bool fFailureActionsOnNonCrashFailures;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct SERVICE_DELAYED_AUTO_START_INFO
+        {
+            [MarshalAs(UnmanagedType.Bool)] public bool fDelayedAutostart;
         }
 
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
@@ -97,6 +106,69 @@ namespace Services.Core.Helpers
         [DllImport("advapi32.dll", SetLastError = true, EntryPoint = "ChangeServiceConfig2W")]
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool ChangeServiceConfig2(IntPtr hService, uint dwInfoLevel, ref SERVICE_FAILURE_ACTIONS_FLAG lpInfo);
+
+        [DllImport("advapi32.dll", SetLastError = true, EntryPoint = "ChangeServiceConfig2W")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool ChangeServiceConfig2(IntPtr hService, uint dwInfoLevel, ref SERVICE_DELAYED_AUTO_START_INFO lpInfo);
+
+        /// <summary>
+        /// 设置服务是否延迟自动启动（仅对自动启动类型的服务有意义，调用前应已将启动类型设为 Auto）
+        /// </summary>
+        public static void SetDelayedAutoStart(string serviceName, bool delayed)
+        {
+            IntPtr scmHandle = OpenSCManager(null, null, SC_MANAGER_CONNECT);
+            if (scmHandle == IntPtr.Zero)
+                throw new Exception($"Failed to open SC Manager. Error: {Marshal.GetLastWin32Error()}");
+
+            try
+            {
+                IntPtr serviceHandle = OpenService(scmHandle, serviceName, SERVICE_CHANGE_CONFIG);
+                if (serviceHandle == IntPtr.Zero)
+                    throw new Exception($"Failed to open service. Error: {Marshal.GetLastWin32Error()}");
+
+                try
+                {
+                    var info = new SERVICE_DELAYED_AUTO_START_INFO { fDelayedAutostart = delayed };
+                    if (!ChangeServiceConfig2(serviceHandle, SERVICE_CONFIG_DELAYED_AUTO_START_INFO, ref info))
+                        throw new Exception($"Failed to set delayed auto start. Error: {Marshal.GetLastWin32Error()}");
+                }
+                finally
+                {
+                    CloseServiceHandle(serviceHandle);
+                }
+            }
+            finally
+            {
+                CloseServiceHandle(scmHandle);
+            }
+        }
+
+        /// <summary>
+        /// 系统中是否存在指定名称的服务（含驱动类服务，如 Tcpip；名称不区分大小写）。
+        /// 仅在明确返回“服务不存在 / 名称无效”时为 false，其他错误（如无法连接 SCM）视为存在，交由后续操作报告。
+        /// </summary>
+        public static bool ServiceExists(string serviceName)
+        {
+            IntPtr scmHandle = OpenSCManager(null, null, SC_MANAGER_CONNECT);
+            if (scmHandle == IntPtr.Zero) return true;
+
+            try
+            {
+                IntPtr serviceHandle = OpenService(scmHandle, serviceName, SERVICE_QUERY_STATUS);
+                if (serviceHandle != IntPtr.Zero)
+                {
+                    CloseServiceHandle(serviceHandle);
+                    return true;
+                }
+
+                int error = Marshal.GetLastWin32Error();
+                return error != ERROR_SERVICE_DOES_NOT_EXIST && error != ERROR_INVALID_NAME;
+            }
+            finally
+            {
+                CloseServiceHandle(scmHandle);
+            }
+        }
 
         /// <summary>
         /// 设置服务以非 0 退出码停止时是否也触发 SCM 恢复策略（默认仅进程崩溃时触发）

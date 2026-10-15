@@ -23,7 +23,8 @@ namespace Services.Cli
                                     可包含换行，启动时各行去除首尾空白、忽略空行后以空格拼接。
               --description <文本>  服务描述；系统中显示为 "Managed by Windows Service Manager: <描述>"，
                                     为空时使用服务名称
-              --startup <类型>      启动类型：auto（开机自启）| manual（手动）| disabled（禁用）
+              --startup <类型>      启动类型：auto（开机自启）| delayed-auto（延迟自动启动：开机后稍晚启动，
+                                    减轻开机负载）| manual（手动）| disabled（禁用）
               --auto-restart        启用失败自动重启（进程以非 0 退出码退出时重启）
               --no-auto-restart     关闭失败自动重启
               --restart-delay <秒>  首次重启前的等待时间，1-3600，默认 5
@@ -55,6 +56,10 @@ namespace Services.Cli
               --unset-env <KEY>     移除该服务已设置的某个环境变量，可重复指定
               --clear-env           清空该服务已设置的所有环境变量
                                     同一命令中的处理顺序：--clear-env → --unset-env → --env
+              --depends-on <服务名> 本服务依赖的服务，启动本服务前系统会先启动它，可重复指定。填写 Windows 服务名
+                                    （如 Tcpip、MySQL80，可以是任意服务，或本工具创建的服务 ID），服务必须已存在。
+                                    更新时以给定列表整体替换原有依赖；不支持依赖组
+              --clear-depends       清空该服务的所有依赖（不能与 --depends-on 同时使用）
             """;
 
         public static string Overview(IEnumerable<CommandSpec> commands)
@@ -131,7 +136,7 @@ namespace Services.Cli
               state             running | stopped | start_pending | stop_pending | unknown
               statusText        状态的中文描述
               pid               进程 ID（ServicesApp 包装器进程），未运行时为 null
-              startupType       auto | manual | disabled
+              startupType       auto | delayed-auto（延迟自动启动）| manual | disabled
               exePath           可执行文件路径
               args              保存的原始启动参数（可能为多行）
               commandLineArgs   实际传给程序的命令行参数（多行已合并）
@@ -141,6 +146,7 @@ namespace Services.Cli
               stopPolicy        { mode (kill | ctrl-c | command), command, timeoutSeconds }
               account           { type (localsystem | localservice | networkservice | virtual | user), name }
               environment       服务级环境变量对象 { 变量名: 值 }（按变量名排序，值为未展开的原始文本），未设置时为 {}
+              dependencies      依赖的服务名数组（本服务启动前需先启动的 Windows 服务），无依赖时为 []
               createdAt         创建时间（ISO 8601）
               latestLogPath     最新日志文件路径，尚无日志时为 null
 
@@ -163,7 +169,7 @@ namespace Services.Cli
               --start               创建后立即启动并等待其进入运行状态（最多 30 秒）
 
             默认值:
-              启动类型 auto；不自动重启；重启策略 5 秒 / 5 次 / 10 分钟 / 指数退避；停止方式 kill；无自定义环境变量。
+              启动类型 auto；不自动重启；重启策略 5 秒 / 5 次 / 10 分钟 / 指数退避；停止方式 kill；无自定义环境变量；无依赖服务。
 
             输出:
               成功后输出新服务的信息；--json 时输出 { ok, action, id, message, service }，
@@ -203,6 +209,7 @@ namespace Services.Cli
               {{Tool}} update nginx --stop-mode command --stop-command "{exe} -s quit" --stop-timeout 60
               {{Tool}} update MyApp --account virtual --restart
               {{Tool}} update MyApp --env NODE_ENV=production --env "PATH=%PATH%;C:\tools" --unset-env DEBUG --restart
+              {{Tool}} update MyApp --startup delayed-auto --depends-on Tcpip --depends-on MySQL80
               "<密码>" | {{Tool}} update MyApp --account .\svcuser --password-stdin     (PowerShell)
             """;
 

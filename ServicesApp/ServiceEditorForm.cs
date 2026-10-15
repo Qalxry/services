@@ -34,6 +34,7 @@ namespace ServicesApp
         private readonly TextBlock _accountHint;
         private readonly TextBox _accountNameBox;
         private readonly PasswordBox _passwordBox;
+        private readonly TextBox _dependenciesBox;
         private readonly Service? _existing;
         private readonly TextBlock _errorText;
 
@@ -56,9 +57,8 @@ namespace ServicesApp
             Grid.SetColumn(_nameBox, 0); Grid.SetRow(_nameBox, 0);
 
             _startupBox = new ComboBox { Header = "启动类型", HorizontalAlignment = HorizontalAlignment.Stretch };
-            _startupBox.Items.Add("开机自启");
-            _startupBox.Items.Add("手动启动");
-            _startupBox.Items.Add("已禁用");
+            foreach (var name in ServiceStartupModes.DisplayNames)
+                _startupBox.Items.Add(name);
             Grid.SetColumn(_startupBox, 1); Grid.SetRow(_startupBox, 0);
 
             // Exe Path | File picker
@@ -223,6 +223,17 @@ namespace ServicesApp
             Grid.SetColumn(_passwordBox, 1); Grid.SetRow(_passwordBox, 11);
             _accountBox.SelectionChanged += (s, e) => UpdateAccountControls();
 
+            // Service dependencies (comma / newline separated service names)
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            _dependenciesBox = new TextBox
+            {
+                Header = "依赖服务 (可选)",
+                PlaceholderText = "Tcpip, MySQL80",
+                Description = "启动本服务前会先启动这些服务；填写 Windows 服务名，如 Tcpip、MySQL80，多个用逗号分隔"
+            };
+            Grid.SetColumn(_dependenciesBox, 0); Grid.SetRow(_dependenciesBox, 12);
+            Grid.SetColumnSpan(_dependenciesBox, 2);
+
             // Validation message
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             _errorText = new TextBlock
@@ -231,7 +242,7 @@ namespace ServicesApp
                 TextWrapping = TextWrapping.Wrap,
                 Visibility = Visibility.Collapsed
             };
-            Grid.SetColumn(_errorText, 0); Grid.SetRow(_errorText, 12);
+            Grid.SetColumn(_errorText, 0); Grid.SetRow(_errorText, 13);
             Grid.SetColumnSpan(_errorText, 2);
 
             // Add children
@@ -251,6 +262,7 @@ namespace ServicesApp
             grid.Children.Add(_accountHint);
             grid.Children.Add(_accountNameBox);
             grid.Children.Add(_passwordBox);
+            grid.Children.Add(_dependenciesBox);
             grid.Children.Add(_errorText);
 
             if (existing != null)
@@ -272,7 +284,8 @@ namespace ServicesApp
                 _stopCommandBox.Text = existing.StopCommand ?? "";
                 _accountBox.SelectedIndex = (int)existing.AccountType;
                 _accountNameBox.Text = existing.AccountType == ServiceAccountType.User ? existing.AccountName ?? "" : "";
-                _startupBox.SelectedIndex = (int)existing.StartupType - (int)ServiceStartupType.Auto;
+                _startupBox.SelectedIndex = ServiceStartupModes.ToIndex(existing.StartupType, existing.DelayedAutoStart);
+                _dependenciesBox.Text = ServiceDependencies.Format(existing.Dependencies);
             }
             else
             {
@@ -420,6 +433,10 @@ namespace ServicesApp
             {
                 error = environmentError;
             }
+            else if (!TryParseDependencies(out _, out var dependenciesError))
+            {
+                error = dependenciesError;
+            }
             else if (SelectedStopMode == ServiceStopMode.Command && string.IsNullOrWhiteSpace(_stopCommandBox.Text))
             {
                 error = "停止方式为“执行停止命令”时必须填写停止命令。";
@@ -455,9 +472,27 @@ namespace ServicesApp
             }
         }
 
+        private bool TryParseDependencies(out List<string> dependencies, out string? error)
+        {
+            dependencies = ServiceDependencies.ParseText(_dependenciesBox.Text);
+            try
+            {
+                ServiceDependencies.Validate(dependencies, _existing?.Id);
+                error = null;
+                return true;
+            }
+            catch (ArgumentException ex)
+            {
+                error = ex.Message;
+                return false;
+            }
+        }
+
         public ServiceConfig ToConfig()
         {
             TryParseEnvironment(out var environment, out _);
+            TryParseDependencies(out var dependencies, out _);
+            var (startupType, delayedAutoStart) = ServiceStartupModes.FromIndex(_startupBox.SelectedIndex);
             return new ServiceConfig
             {
                 Name = _nameBox.Text.Trim(),
@@ -476,7 +511,9 @@ namespace ServicesApp
                 AccountType = SelectedAccountType,
                 AccountName = SelectedAccountType == ServiceAccountType.User ? _accountNameBox.Text.Trim() : null,
                 Environment = environment,
-                StartupType = (ServiceStartupType)(_startupBox.SelectedIndex + (int)ServiceStartupType.Auto)
+                StartupType = startupType,
+                DelayedAutoStart = delayedAutoStart,
+                Dependencies = dependencies
             };
         }
 
