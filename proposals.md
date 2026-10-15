@@ -19,7 +19,7 @@ stdout/stderr 日志、GUI 与 CLI 管理、JSON 输出。以下为生产服务�
 
 | # | 项目 | 优先级 | 状态 |
 |---|---|---|---|
-| 1 | 子进程纳入 Job Object，杜绝孤儿进程 | P0 必须 | 待办 |
+| 1 | 子进程纳入 Job Object，杜绝孤儿进程 | P0 必须 | 已完成 |
 | 2 | 优雅停止（Ctrl+C / 自定义停止命令 + 超时强制结束） | P0 必须 | 待办 |
 | 3 | 放弃重启时以失败状态退出，触发 SCM 恢复策略 | P0 必须 | 待办 |
 | 4 | 运行账户（LocalSystem / LocalService / NetworkService / 虚拟账户 / 指定用户） | P1 生产 | 待办 |

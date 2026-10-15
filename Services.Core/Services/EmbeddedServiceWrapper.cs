@@ -13,6 +13,9 @@ namespace Services.Core.Services
     public class EmbeddedServiceWrapper : ServiceBase
     {
         private Process? _process;
+        // 包装器进程自身所在的 Job（KILL_ON_JOB_CLOSE）。生命周期与包装器进程一致，不主动关闭：
+        // 关闭句柄会结束 Job 内所有进程（包括包装器自身），应由进程退出时由系统关闭。
+        private JobObject? _job;
         private string _serviceName;
         private AsyncLogger? _logger;
         private bool _autoRestart = false;
@@ -38,6 +41,7 @@ namespace Services.Core.Services
                 LoadRestartPolicy();
 
                 InitLogger();
+                EnterJobObject();
                 StartTargetProcess(config);
             }
             catch (Exception ex)
@@ -59,6 +63,26 @@ namespace Services.Core.Services
             Directory.CreateDirectory(logDir);
             var logFile = Path.Combine(logDir, $"{_serviceName}_{DateTime.Now:yyyyMMdd_HHmmss}.log");
             _logger = new AsyncLogger(logFile);
+        }
+
+        /// <summary>
+        /// 将包装器进程加入 KILL_ON_JOB_CLOSE 的 Job。目标程序及其子进程创建时即继承该 Job，
+        /// 包装器以任何方式退出（包括崩溃、被强制结束）时，系统都会结束整个进程树，避免遗留孤儿进程。
+        /// </summary>
+        private void EnterJobObject()
+        {
+            try
+            {
+                _job = new JobObject();
+                _job.AssignCurrentProcess();
+            }
+            catch (Exception ex)
+            {
+                // 此时 Job 内尚无任何进程，关闭句柄是安全的
+                _job?.Dispose();
+                _job = null;
+                LogSystem($"Warning: failed to create job object, child processes may outlive the wrapper: {ex.Message}");
+            }
         }
 
         private void LogCriticalError(Exception ex)
