@@ -47,6 +47,11 @@ namespace Services.Core.Services
             catch (JsonException) { return null; }
         }
 
+        // 读取方（GUI 刷新、servicesctl get）正打开状态文件时覆盖移动会失败：即使以 FileShare.Delete 打开，
+        // 文件在关闭前仍占用文件名。读取只需几毫秒，短暂重试即可，避免丢失状态更新（如失败原因）。
+        private const int MoveAttempts = 10;
+        private const int MoveRetryDelayMs = 20;
+
         /// <summary>
         /// 原子写入：先写临时文件，再覆盖移动到目标位置，读取方不会看到写了一半的内容。返回是否成功。
         /// </summary>
@@ -59,8 +64,18 @@ namespace Services.Core.Services
                 var path = GetStatePath(state.ServiceId);
                 tempPath = path + ".tmp";
                 File.WriteAllText(tempPath, Serialize(state));
-                File.Move(tempPath, path, overwrite: true);
-                return true;
+                for (int attempt = 1; ; attempt++)
+                {
+                    try
+                    {
+                        File.Move(tempPath, path, overwrite: true);
+                        return true;
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException && attempt < MoveAttempts)
+                    {
+                        System.Threading.Thread.Sleep(MoveRetryDelayMs);
+                    }
+                }
             }
             catch (Exception ex)
             {
