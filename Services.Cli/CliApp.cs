@@ -20,10 +20,10 @@ namespace Services.Cli
 
         private static readonly string[] ConfigValueOptions =
             { "exe", "workdir", "args", "description", "startup", "restart-delay", "max-restarts", "restart-reset",
-              "stop-mode", "stop-command", "stop-timeout" };
+              "stop-mode", "stop-command", "stop-timeout", "account" };
 
         private static readonly string[] ConfigFlagOptions =
-            { "auto-restart", "no-auto-restart", "backoff", "no-backoff" };
+            { "auto-restart", "no-auto-restart", "backoff", "no-backoff", "password-stdin" };
 
         private static readonly List<CommandSpec> Commands = new()
         {
@@ -193,7 +193,8 @@ namespace Services.Cli
 
             var manager = await CreateManagerAsync();
             manager.WrapperExePath = ResolveWrapperPath();
-            var id = await manager.CreateServiceAsync(config);
+            var password = ReadPasswordOption(args, config, existing: null);
+            var id = await manager.CreateServiceAsync(config, password);
 
             var message = $"服务 '{config.Name}' 已创建（ID: {id}）。";
             if (args.HasFlag("start"))
@@ -220,7 +221,8 @@ namespace Services.Cli
             if (changed == 0)
                 throw new UsageException("未指定任何要修改的字段。", "update");
 
-            await manager.UpdateServiceAsync(service.Id, config);
+            var password = ReadPasswordOption(args, config, service);
+            await manager.UpdateServiceAsync(service.Id, config, password);
 
             var message = $"服务 '{config.Name}' 已更新。";
             if (IsRunning(service.Id))
@@ -563,6 +565,23 @@ namespace Services.Cli
                 changed++;
             }
 
+            if (args.GetValue("account") is { } account)
+            {
+                if (string.IsNullOrWhiteSpace(account))
+                    throw new UsageException("--account 不能为空。", args.Command);
+
+                config.AccountType = account.Trim().ToLowerInvariant() switch
+                {
+                    "localsystem" => ServiceAccountType.LocalSystem,
+                    "localservice" => ServiceAccountType.LocalService,
+                    "networkservice" => ServiceAccountType.NetworkService,
+                    "virtual" => ServiceAccountType.Virtual,
+                    _ => ServiceAccountType.User
+                };
+                config.AccountName = config.AccountType == ServiceAccountType.User ? account.Trim() : null;
+                changed++;
+            }
+
             if (config.StopMode == ServiceStopMode.Command && string.IsNullOrWhiteSpace(config.StopCommand))
                 throw new UsageException("--stop-mode command 需要同时指定 --stop-command。", args.Command);
 
@@ -572,6 +591,31 @@ namespace Services.Cli
                 throw new UsageException($"工作目录不存在: {config.WorkingDir}", args.Command);
 
             return changed;
+        }
+
+        /// <summary>
+        /// 处理 --password-stdin：从标准输入读取一行作为指定用户的密码。
+        /// 新建、切换为指定用户或更换用户名时必须提供；同一用户未提供时保持原密码。
+        /// </summary>
+        private static string? ReadPasswordOption(ParsedArgs args, ServiceConfig config, Service? existing)
+        {
+            bool isUser = config.AccountType == ServiceAccountType.User;
+            if (args.HasFlag("password-stdin"))
+            {
+                if (!isUser)
+                    throw new UsageException("--password-stdin 仅在 --account 为指定用户时使用。", args.Command);
+
+                var password = Console.In.ReadLine();
+                if (string.IsNullOrEmpty(password))
+                    throw new UsageException("未能从标准输入读取到密码。", args.Command);
+                return password.TrimEnd('\r');
+            }
+
+            bool requiresPassword = isUser && (existing == null || existing.AccountType != ServiceAccountType.User ||
+                !string.Equals(existing.AccountName, config.AccountName, StringComparison.OrdinalIgnoreCase));
+            if (requiresPassword)
+                throw new UsageException($"运行账户为用户 '{config.AccountName}' 时需通过 --password-stdin 提供密码。", args.Command);
+            return null;
         }
 
         private static string ResolveWrapperPath()
@@ -735,6 +779,11 @@ namespace Services.Cli
                     ResetMinutes = s.RestartResetMinutes,
                     Backoff = s.RestartBackoff
                 },
+                Account = new AccountInfo
+                {
+                    Type = s.AccountType.ToString().ToLowerInvariant(),
+                    Name = s.AccountName ?? ServiceAccounts.LocalSystemName
+                },
                 StopPolicy = new StopPolicyInfo
                 {
                     Mode = ToStopModeText(s.StopMode),
@@ -785,6 +834,7 @@ namespace Services.Cli
                 ("启动类型", info.StartupType),
                 ("失败自动重启", restartText),
                 ("停止方式", stopText),
+                ("运行账户", info.Account.Name),
                 ("程序路径", info.ExePath),
                 ("工作目录", info.WorkingDir),
                 ("启动参数", info.CommandLineArgs),

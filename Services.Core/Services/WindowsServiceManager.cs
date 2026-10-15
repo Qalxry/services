@@ -94,6 +94,8 @@ namespace Services.Core.Services
                 StopMode = s.StopMode,
                 StopCommand = s.StopCommand,
                 StopTimeoutSeconds = s.StopTimeoutSeconds,
+                AccountType = s.AccountType,
+                AccountName = s.AccountName,
                 CreatedAt = s.CreatedAt,
                 UpdatedAt = s.UpdatedAt
             };
@@ -121,9 +123,11 @@ namespace Services.Core.Services
         }
 
         /// <returns>新服务的 ID</returns>
-        public async Task<string> CreateServiceAsync(ServiceConfig config)
+        /// <param name="password">运行账户为指定用户时的密码（不保存，仅交给 SCM）</param>
+        public async Task<string> CreateServiceAsync(ServiceConfig config, string? password = null)
                 {
                     ValidateConfig(config);
+                    PrepareUserAccount(config, password);
 
                     string serviceName = GenerateServiceName(config.Name);
 
@@ -198,9 +202,24 @@ namespace Services.Core.Services
                     }
                     catch (Exception ex)
                     {
-                        await DeleteServiceAsync(serviceName);
+                        DeleteServiceRegistration(serviceName);
                         throw new Exception($"Failed to configure service registry: {ex.Message}");
                     }
+
+                    if (config.AccountType != ServiceAccountType.LocalSystem)
+                    {
+                        try
+                        {
+                            ApplyServiceAccount(serviceName, config, password);
+                        }
+                        catch (Exception ex)
+                        {
+                            DeleteServiceRegistration(serviceName);
+                            throw new Exception($"Failed to configure service account: {ex.Message}");
+                        }
+                    }
+
+                    EnsureEventSource(serviceName);
 
                     SetServiceDescription(serviceName, BuildServiceDescription(config));
 
@@ -217,14 +236,24 @@ namespace Services.Core.Services
         /// <summary>
         /// 更新已有服务的配置。服务 ID 保持不变，运行中的服务需重启后才会应用新的启动配置。
         /// </summary>
-        public async Task UpdateServiceAsync(string serviceId, ServiceConfig config)
+        /// <param name="password">切换为指定用户或修改其密码时提供；为 null 时不修改账户密码</param>
+        public async Task UpdateServiceAsync(string serviceId, ServiceConfig config, string? password = null)
         {
+            Service? existing;
             lock (_lock)
             {
-                if (!_services.ContainsKey(serviceId)) throw new Exception("Service not found");
+                if (!_services.TryGetValue(serviceId, out existing)) throw new Exception("Service not found");
             }
 
             ValidateConfig(config);
+
+            bool accountChanged = config.AccountType != existing.AccountType ||
+                (config.AccountType == ServiceAccountType.User &&
+                 !string.Equals(config.AccountName?.Trim(), existing.AccountName, StringComparison.OrdinalIgnoreCase));
+            if (accountChanged || (config.AccountType == ServiceAccountType.User && password != null))
+            {
+                PrepareUserAccount(config, password);
+            }
 
             IntPtr scmHandle = ServiceUtils.OpenSCManager(null, null, ServiceUtils.SC_MANAGER_CONNECT);
             if (scmHandle == IntPtr.Zero)
@@ -271,7 +300,101 @@ namespace Services.Core.Services
             SetServiceDescription(serviceId, BuildServiceDescription(config));
             ServiceUtils.SetFailureActionsOnNonCrashFailures(serviceId, config.AutoRestart);
 
+            if (accountChanged || (config.AccountType == ServiceAccountType.User && password != null))
+            {
+                ApplyServiceAccount(serviceId, config, password);
+            }
+            EnsureEventSource(serviceId);
+
             await LoadServicesAsync();
+        }
+
+        /// <summary>
+        /// 指定用户：必须提供密码；授予“作为服务登录”权限并校验密码。在修改服务之前执行，失败时不留下半成品。
+        /// </summary>
+        private static void PrepareUserAccount(ServiceConfig config, string? password)
+        {
+            if (config.AccountType != ServiceAccountType.User) return;
+
+            if (string.IsNullOrWhiteSpace(config.AccountName))
+                throw new ArgumentException("Account name is required for a user account.");
+            if (string.IsNullOrEmpty(password))
+                throw new ArgumentException("Password is required for a user account.");
+
+            var accountName = config.AccountName.Trim();
+            ServiceAccounts.GrantLogonAsService(accountName);
+            ServiceAccounts.ValidateCredentials(accountName, password);
+        }
+
+        /// <summary>
+        /// 设置服务运行账户，并为非 LocalSystem 账户授予日志目录写权限
+        /// </summary>
+        private static void ApplyServiceAccount(string serviceId, ServiceConfig config, string? password)
+        {
+            var objectName = ServiceAccounts.ToObjectName(config.AccountType, serviceId, config.AccountName);
+
+            // 虚拟账户在服务存在后才能解析 SID，因此先设置账户再授权目录
+            ChangeServiceAccount(serviceId, objectName, config.AccountType == ServiceAccountType.User ? password ?? "" : "");
+
+            if (config.AccountType != ServiceAccountType.LocalSystem)
+            {
+                ServiceAccounts.GrantDirectoryModify(new LogManager().GetLogDirectory(), objectName);
+            }
+        }
+
+        private static void ChangeServiceAccount(string serviceId, string objectName, string password)
+        {
+            IntPtr scmHandle = ServiceUtils.OpenSCManager(null, null, ServiceUtils.SC_MANAGER_CONNECT);
+            if (scmHandle == IntPtr.Zero)
+                throw new Exception($"Failed to open SC Manager. Error: {Marshal.GetLastWin32Error()}");
+
+            try
+            {
+                IntPtr serviceHandle = ServiceUtils.OpenService(scmHandle, serviceId, ServiceUtils.SERVICE_CHANGE_CONFIG);
+                if (serviceHandle == IntPtr.Zero)
+                    throw new Exception($"Failed to open service. Error: {Marshal.GetLastWin32Error()}");
+
+                try
+                {
+                    if (!ServiceUtils.ChangeServiceConfig(
+                            serviceHandle,
+                            ServiceUtils.SERVICE_NO_CHANGE,
+                            ServiceUtils.SERVICE_NO_CHANGE,
+                            ServiceUtils.SERVICE_NO_CHANGE,
+                            null,
+                            null,
+                            IntPtr.Zero,
+                            null,
+                            objectName,
+                            password,
+                            null))
+                        throw new Exception($"Failed to change service account. Error: {Marshal.GetLastWin32Error()}");
+                }
+                finally
+                {
+                    ServiceUtils.CloseServiceHandle(serviceHandle);
+                }
+            }
+            finally
+            {
+                ServiceUtils.CloseServiceHandle(scmHandle);
+            }
+        }
+
+        /// <summary>
+        /// 注册事件日志源，使低权限运行账户的包装器也能写入 Windows 事件日志（注册需要管理员权限）
+        /// </summary>
+        private static void EnsureEventSource(string serviceId)
+        {
+            try
+            {
+                if (!EventLog.SourceExists(serviceId))
+                    EventLog.CreateEventSource(serviceId, "Application");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to register event source: {ex.Message}");
+            }
         }
 
         private static void ValidateConfig(ServiceConfig config)
@@ -435,6 +558,19 @@ namespace Services.Core.Services
 
                     await StopServiceAsync(serviceId);
 
+                    DeleteServiceRegistration(serviceId);
+
+                    lock (_lock)
+                    {
+                        _services.Remove(serviceId);
+                    }
+                }
+
+        /// <summary>
+        /// 从 SCM 删除服务并清理索引、注册表参数与事件日志源。不检查本地缓存，可用于创建失败时回滚。
+        /// </summary>
+        private void DeleteServiceRegistration(string serviceId)
+                {
                     // Use P/Invoke to delete service
                     IntPtr scmHandle = ServiceUtils.OpenSCManager(null, null, ServiceUtils.SC_MANAGER_CONNECT);
                     if (scmHandle == IntPtr.Zero)
@@ -476,9 +612,14 @@ namespace Services.Core.Services
                         System.Diagnostics.Debug.WriteLine($"Failed to delete Parameters registry key: {ex.Message}");
                     }
 
-                    lock (_lock)
+                    try
                     {
-                        _services.Remove(serviceId);
+                        if (EventLog.SourceExists(serviceId))
+                            EventLog.DeleteEventSource(serviceId);
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Failed to delete event source: {ex.Message}");
                     }
                 }
 
@@ -593,6 +734,8 @@ namespace Services.Core.Services
             DateTime createdAt = DateTime.Now;
             if (DateTime.TryParse(createdAtStr, out var dt)) createdAt = dt;
 
+            var accountName = serviceKey.GetValue("ObjectName") as string;
+
             var startupType = ServiceStartupType.Auto;
             if (serviceKey.GetValue("Start") is int startVal && Enum.IsDefined(typeof(ServiceStartupType), startVal))
                 startupType = (ServiceStartupType)startVal;
@@ -615,6 +758,8 @@ namespace Services.Core.Services
                 StopMode = stopMode,
                 StopCommand = stopCommand,
                 StopTimeoutSeconds = stopTimeoutSeconds,
+                AccountType = ServiceAccounts.ParseObjectName(accountName),
+                AccountName = string.IsNullOrWhiteSpace(accountName) ? ServiceAccounts.LocalSystemName : accountName,
                 CreatedAt = createdAt,
                 UpdatedAt = DateTime.Now,
                 StartupType = startupType,

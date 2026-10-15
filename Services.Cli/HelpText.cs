@@ -41,6 +41,14 @@ namespace Services.Cli
                                     {workdir} 工作目录（均自动加引号）、{pid} 进程 ID。
                                     例：nginx 用 "{exe} -s quit"（若启动参数含 -p / -c，停止命令需带相同参数）
               --stop-timeout <秒>   优雅停止的最长等待时间，1-3600，默认 30。系统关机时最多等待 4 秒
+              --account <账户>      运行账户，默认 localsystem（权限最高）：
+                                      localsystem | localservice | networkservice
+                                      virtual  虚拟账户 NT SERVICE\<服务ID>，每个服务独立、无需密码（推荐的低权限方案）
+                                      其他值视为用户名（.\user 或 DOMAIN\user），需配合 --password-stdin，
+                                      并会自动授予“作为服务登录”权限、校验密码
+                                    非 localsystem 账户需能读取程序与工作目录；日志目录写权限会自动授予
+              --password-stdin      从标准输入读取用户密码（一行），避免密码出现在命令行与历史记录中。
+                                    更新时仅在切换为该用户或更换用户名时必需，否则保持原密码
             """;
 
         public static string Overview(IEnumerable<CommandSpec> commands)
@@ -125,6 +133,7 @@ namespace Services.Cli
               autoRestart       是否启用失败自动重启
               restartPolicy     { delaySeconds, maxRestarts (0=不限), resetMinutes, backoff }
               stopPolicy        { mode (kill | ctrl-c | command), command, timeoutSeconds }
+              account           { type (localsystem | localservice | networkservice | virtual | user), name }
               createdAt         创建时间（ISO 8601）
               latestLogPath     最新日志文件路径，尚无日志时为 null
 
@@ -185,6 +194,8 @@ namespace Services.Cli
               {{Tool}} update MyApp --args "--port 9090" --restart
               {{Tool}} update WinSvcMgr_MyApp_1a2b3c4d --startup manual --no-auto-restart
               {{Tool}} update nginx --stop-mode command --stop-command "{exe} -s quit" --stop-timeout 60
+              {{Tool}} update MyApp --account virtual --restart
+              "<密码>" | {{Tool}} update MyApp --account .\svcuser --password-stdin     (PowerShell)
             """;
 
         public const string Delete = $$"""

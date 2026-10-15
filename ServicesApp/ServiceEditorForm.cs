@@ -27,6 +27,11 @@ namespace ServicesApp
         private readonly ComboBox _stopModeBox;
         private readonly NumberBox _stopTimeoutBox;
         private readonly TextBox _stopCommandBox;
+        private readonly ComboBox _accountBox;
+        private readonly TextBlock _accountHint;
+        private readonly TextBox _accountNameBox;
+        private readonly PasswordBox _passwordBox;
+        private readonly Service? _existing;
         private readonly TextBlock _errorText;
 
         public FrameworkElement View { get; }
@@ -34,6 +39,7 @@ namespace ServicesApp
         public ServiceEditorForm(IntPtr ownerHwnd, Service? existing = null)
         {
             _ownerHwnd = ownerHwnd;
+            _existing = existing;
 
             // Use Grid for compact layout (No redundancy)
             var grid = new Grid { RowSpacing = 12, ColumnSpacing = 12 };
@@ -164,6 +170,39 @@ namespace ServicesApp
             Grid.SetColumnSpan(_stopCommandBox, 2);
             _stopModeBox.SelectionChanged += (s, e) => UpdateStopControls();
 
+            // Run-as account | Hint
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            _accountBox = new ComboBox { Header = "运行账户", HorizontalAlignment = HorizontalAlignment.Stretch };
+            _accountBox.Items.Add("本地系统（LocalSystem）");
+            _accountBox.Items.Add("本地服务（LocalService）");
+            _accountBox.Items.Add("网络服务（NetworkService）");
+            _accountBox.Items.Add("虚拟账户（NT SERVICE\\服务ID）");
+            _accountBox.Items.Add("指定用户");
+            Grid.SetColumn(_accountBox, 0); Grid.SetRow(_accountBox, 9);
+
+            _accountHint = new TextBlock
+            {
+                Text = "低权限账户需能读取程序与工作目录（及程序要写入的目录）；日志目录权限会自动授予。",
+                TextWrapping = TextWrapping.Wrap,
+                FontSize = 12,
+                Opacity = 0.7,
+                VerticalAlignment = VerticalAlignment.Bottom
+            };
+            Grid.SetColumn(_accountHint, 1); Grid.SetRow(_accountHint, 9);
+
+            // User name | Password
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            _accountNameBox = new TextBox { Header = "账户名", PlaceholderText = @".\svcuser 或 DOMAIN\svcuser" };
+            Grid.SetColumn(_accountNameBox, 0); Grid.SetRow(_accountNameBox, 10);
+
+            _passwordBox = new PasswordBox
+            {
+                Header = "密码",
+                PlaceholderText = existing?.AccountType == ServiceAccountType.User ? "留空表示不修改密码" : ""
+            };
+            Grid.SetColumn(_passwordBox, 1); Grid.SetRow(_passwordBox, 10);
+            _accountBox.SelectionChanged += (s, e) => UpdateAccountControls();
+
             // Validation message
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             _errorText = new TextBlock
@@ -172,7 +211,7 @@ namespace ServicesApp
                 TextWrapping = TextWrapping.Wrap,
                 Visibility = Visibility.Collapsed
             };
-            Grid.SetColumn(_errorText, 0); Grid.SetRow(_errorText, 9);
+            Grid.SetColumn(_errorText, 0); Grid.SetRow(_errorText, 11);
             Grid.SetColumnSpan(_errorText, 2);
 
             // Add children
@@ -187,6 +226,10 @@ namespace ServicesApp
             grid.Children.Add(_stopModeBox);
             grid.Children.Add(_stopTimeoutBox);
             grid.Children.Add(_stopCommandBox);
+            grid.Children.Add(_accountBox);
+            grid.Children.Add(_accountHint);
+            grid.Children.Add(_accountNameBox);
+            grid.Children.Add(_passwordBox);
             grid.Children.Add(_errorText);
 
             if (existing != null)
@@ -205,14 +248,18 @@ namespace ServicesApp
                 _stopModeBox.SelectedIndex = (int)existing.StopMode;
                 _stopTimeoutBox.Value = existing.StopTimeoutSeconds;
                 _stopCommandBox.Text = existing.StopCommand ?? "";
+                _accountBox.SelectedIndex = (int)existing.AccountType;
+                _accountNameBox.Text = existing.AccountType == ServiceAccountType.User ? existing.AccountName ?? "" : "";
                 _startupBox.SelectedIndex = (int)existing.StartupType - (int)ServiceStartupType.Auto;
             }
             else
             {
                 _startupBox.SelectedIndex = 0;
                 _stopModeBox.SelectedIndex = 0;
+                _accountBox.SelectedIndex = 0;
             }
             UpdateStopControls();
+            UpdateAccountControls();
 
             // Wrap in ScrollViewer but HIDE scrollbars (Clean UI)
             View = new ScrollViewer
@@ -307,6 +354,31 @@ namespace ServicesApp
             _stopCommandBox.Visibility = mode == ServiceStopMode.Command ? Visibility.Visible : Visibility.Collapsed;
         }
 
+        private ServiceAccountType SelectedAccountType =>
+            _accountBox.SelectedIndex >= 0 ? (ServiceAccountType)_accountBox.SelectedIndex : ServiceAccountType.LocalSystem;
+
+        /// <summary>
+        /// 新建服务、从其他账户类型切换为指定用户或更换用户名时必须提供密码；同一用户可留空保持原密码
+        /// </summary>
+        private bool RequiresPassword =>
+            _existing == null ||
+            _existing.AccountType != ServiceAccountType.User ||
+            !string.Equals(_existing.AccountName, _accountNameBox.Text.Trim(), StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// 指定用户时填写的密码；留空或非指定用户时为 null（表示不修改密码）
+        /// </summary>
+        public string? Password =>
+            SelectedAccountType == ServiceAccountType.User && !string.IsNullOrEmpty(_passwordBox.Password) ? _passwordBox.Password : null;
+
+        private void UpdateAccountControls()
+        {
+            var isUser = SelectedAccountType == ServiceAccountType.User;
+            _accountNameBox.Visibility = isUser ? Visibility.Visible : Visibility.Collapsed;
+            _passwordBox.Visibility = isUser ? Visibility.Visible : Visibility.Collapsed;
+            _accountHint.Visibility = SelectedAccountType == ServiceAccountType.LocalSystem ? Visibility.Collapsed : Visibility.Visible;
+        }
+
         public bool Validate()
         {
             string? error = null;
@@ -325,6 +397,14 @@ namespace ServicesApp
             else if (SelectedStopMode == ServiceStopMode.Command && string.IsNullOrWhiteSpace(_stopCommandBox.Text))
             {
                 error = "停止方式为“执行停止命令”时必须填写停止命令。";
+            }
+            else if (SelectedAccountType == ServiceAccountType.User && string.IsNullOrWhiteSpace(_accountNameBox.Text))
+            {
+                error = "运行账户为“指定用户”时必须填写账户名。";
+            }
+            else if (SelectedAccountType == ServiceAccountType.User && RequiresPassword && string.IsNullOrEmpty(_passwordBox.Password))
+            {
+                error = "请填写该账户的密码。";
             }
 
             _errorText.Text = error ?? "";
@@ -350,6 +430,8 @@ namespace ServicesApp
                 StopMode = SelectedStopMode,
                 StopCommand = _stopCommandBox.Text.Trim(),
                 StopTimeoutSeconds = ReadNumber(_stopTimeoutBox, StopPolicyDefaults.TimeoutSeconds),
+                AccountType = SelectedAccountType,
+                AccountName = SelectedAccountType == ServiceAccountType.User ? _accountNameBox.Text.Trim() : null,
                 StartupType = (ServiceStartupType)(_startupBox.SelectedIndex + (int)ServiceStartupType.Auto)
             };
         }

@@ -24,6 +24,7 @@ namespace Services.Cli
         public bool AutoRestart { get; set; }
         public RestartPolicyInfo RestartPolicy { get; set; } = new();
         public StopPolicyInfo StopPolicy { get; set; } = new();
+        public AccountInfo Account { get; set; } = new();
         public DateTime CreatedAt { get; set; }
         public string? LatestLogPath { get; set; }
     }
@@ -43,6 +44,14 @@ namespace Services.Cli
         public string Mode { get; set; } = "kill";
         public string? Command { get; set; }
         public int TimeoutSeconds { get; set; }
+    }
+
+    internal sealed class AccountInfo
+    {
+        /// <summary>localsystem / localservice / networkservice / virtual / user</summary>
+        public string Type { get; set; } = "localsystem";
+        /// <summary>SCM 中的账户名，如 LocalSystem、NT SERVICE\&lt;服务ID&gt;、.\svcuser</summary>
+        public string Name { get; set; } = "";
     }
 
     internal sealed class ActionResult

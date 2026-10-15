@@ -571,6 +571,7 @@ namespace ServicesApp
             AddRow("启动类型", GetStartupTypeText(service.StartupType));
             AddRow("失败自动重启", service.AutoRestart ? GetRestartPolicyText(service) : "未启用");
             AddRow("停止方式", GetStopPolicyText(service));
+            AddRow("运行账户", service.AccountName, true);
             AddRow("可执行文件路径", service.ExePath, true);
             AddRow("工作目录", service.WorkingDir, true);
             AddRow("启动参数", service.Args, true);
@@ -667,7 +668,7 @@ namespace ServicesApp
             {
                 try
                 {
-                    await _serviceManager.CreateServiceAsync(config);
+                    await _serviceManager.CreateServiceAsync(config, form.Password);
                     LoadServices();
                     UpdateStatus($"服务 {config.Name} 已创建。");
                 }
@@ -680,7 +681,7 @@ namespace ServicesApp
 
             try
             {
-                await _serviceManager.UpdateServiceAsync(existing.Id, config);
+                await _serviceManager.UpdateServiceAsync(existing.Id, config, form.Password);
                 LoadServices();
                 UpdateStatus($"服务 {config.Name} 已更新。");
             }

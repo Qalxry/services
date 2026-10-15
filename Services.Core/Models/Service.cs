@@ -98,6 +98,10 @@ namespace Services.Core.Models
         public string? StopCommand { get; set; }
         public int StopTimeoutSeconds { get; set; } = StopPolicyDefaults.TimeoutSeconds;
 
+        public ServiceAccountType AccountType { get; set; } = ServiceAccountType.LocalSystem;
+        /// <summary>SCM 中记录的运行账户名（ObjectName），如 LocalSystem、NT SERVICE\&lt;服务ID&gt;、.\user</summary>
+        public string? AccountName { get; set; }
+
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }
 
@@ -122,6 +126,8 @@ namespace Services.Core.Models
             StopMode = other.StopMode;
             StopCommand = other.StopCommand;
             StopTimeoutSeconds = other.StopTimeoutSeconds;
+            AccountType = other.AccountType;
+            AccountName = other.AccountName;
             CreatedAt = other.CreatedAt;
             UpdatedAt = other.UpdatedAt;
         }
@@ -156,6 +162,9 @@ namespace Services.Core.Models
         public ServiceStopMode StopMode { get; set; } = ServiceStopMode.Kill;
         public string? StopCommand { get; set; }
         public int StopTimeoutSeconds { get; set; } = StopPolicyDefaults.TimeoutSeconds;
+        public ServiceAccountType AccountType { get; set; } = ServiceAccountType.LocalSystem;
+        /// <summary>指定用户时的账户名（如 .\svcuser、DOMAIN\svcuser）；其他类型忽略。密码不保存在配置中。</summary>
+        public string? AccountName { get; set; }
         public ServiceStartupType StartupType { get; set; } = ServiceStartupType.Auto;
 
         /// <summary>
@@ -178,6 +187,8 @@ namespace Services.Core.Models
                 StopMode = service.StopMode,
                 StopCommand = service.StopCommand,
                 StopTimeoutSeconds = service.StopTimeoutSeconds,
+                AccountType = service.AccountType,
+                AccountName = service.AccountName,
                 StartupType = service.StartupType
             };
         }
@@ -209,6 +220,23 @@ namespace Services.Core.Models
         CtrlC = 1,
         /// <summary>执行自定义停止命令（如 nginx -s quit），超时后结束进程树</summary>
         Command = 2
+    }
+
+    /// <summary>
+    /// 服务运行账户类型
+    /// </summary>
+    public enum ServiceAccountType
+    {
+        /// <summary>LocalSystem（默认，权限最高，与旧版本一致）</summary>
+        LocalSystem = 0,
+        /// <summary>NT AUTHORITY\LocalService：低权限，以匿名身份访问网络</summary>
+        LocalService = 1,
+        /// <summary>NT AUTHORITY\NetworkService：低权限，以计算机账户访问网络</summary>
+        NetworkService = 2,
+        /// <summary>虚拟账户 NT SERVICE\&lt;服务ID&gt;：每个服务独立的低权限账户，无需密码</summary>
+        Virtual = 3,
+        /// <summary>指定的本地或域用户（需要密码）</summary>
+        User = 4
     }
 
     public static class StopPolicyDefaults
