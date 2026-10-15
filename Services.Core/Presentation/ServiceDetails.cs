@@ -17,7 +17,9 @@ namespace Services.Core.Presentation
     {
         /// <param name="runtime">包装器写入的运行状态，没有状态文件时为 null</param>
         /// <param name="latestLogPath">最新日志路径；为 null 时不输出该行</param>
-        public static List<DetailRow> Build(Service service, ServiceRuntimeState? runtime, string? latestLogPath, DateTime now)
+        /// <param name="showSecrets">显示敏感环境变量的值（默认遮蔽）</param>
+        public static List<DetailRow> Build(Service service, ServiceRuntimeState? runtime, string? latestLogPath, DateTime now,
+            bool showSecrets = false)
         {
             var uptime = ServiceRuntimeState.GetUptime(runtime, service.Pid, service.IsRunning, now);
 
@@ -45,6 +47,7 @@ namespace Services.Core.Presentation
                 new("工作目录", service.WorkingDir, true),
                 new("启动参数", service.Args, true),
                 new("环境变量", EnvironmentVariables.Format(service.Environment), true),
+                new("敏感环境变量", ServiceText.SecretEnvironment(service.SecretEnvironment, service.SecretsReadable, showSecrets), true),
                 new("依赖服务", ServiceDependencies.Format(service.Dependencies), true),
                 new("创建时间", ServiceText.Time(service.CreatedAt)),
             });

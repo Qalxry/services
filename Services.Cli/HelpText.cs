@@ -53,9 +53,12 @@ namespace Services.Cli
               --env <KEY=VALUE>     为程序设置环境变量，可重复指定；叠加在服务继承的系统环境之上，同名时覆盖。
                                     值中的 %VAR% 会在启动时展开，例如 --env "PATH=%PATH%;C:\tools"；
                                     值可为空（KEY=）。更新时与已有变量合并，同名者被覆盖
-              --unset-env <KEY>     移除该服务已设置的某个环境变量，可重复指定
-              --clear-env           清空该服务已设置的所有环境变量
-                                    同一命令中的处理顺序：--clear-env → --unset-env → --env
+              --secret-env <KEY=VALUE>
+                                    设置敏感环境变量（如密钥、口令），可重复指定。值保存在只有 SYSTEM、管理员与
+                                    服务运行账户可读的位置，get / export 默认不显示值；变量名与 --env 共用
+              --unset-env <KEY>     移除该服务已设置的某个环境变量（普通或敏感），可重复指定
+              --clear-env           清空该服务已设置的所有环境变量（普通与敏感）
+                                    同一命令中的处理顺序：--clear-env → --unset-env → --env → --secret-env
               --depends-on <服务名> 本服务依赖的服务，启动本服务前系统会先启动它，可重复指定。填写 Windows 服务名
                                     （如 Tcpip、MySQL80，可以是任意服务，或本工具创建的服务 ID），服务必须已存在。
                                     更新时以给定列表整体替换原有依赖；不支持依赖组
@@ -112,11 +115,12 @@ namespace Services.Cli
             {{Tool}} list - 列出所有由 ServicesApp 管理的服务
 
             用法:
-              {{Tool}} list [--json]
+              {{Tool}} list [--json] [--show-secrets]
 
             输出:
               默认输出表格：ID、名称、状态、PID、启动类型、程序路径（按添加顺序排列）。
               --json 时输出服务对象数组，每个对象的字段见 '{{Tool}} help get'。
+              --show-secrets 时 JSON 中包含敏感环境变量的值（需要管理员权限才能读取）。
 
             权限: 普通权限即可。
             """;
@@ -125,7 +129,10 @@ namespace Services.Cli
             {{Tool}} get - 查看单个服务的完整配置与状态
 
             用法:
-              {{Tool}} get <服务> [--json]
+              {{Tool}} get <服务> [--json] [--show-secrets]
+
+            选项:
+              --show-secrets        显示敏感环境变量的值（默认遮蔽；需要管理员权限才能读取）
 
             参数:
             {{ServiceArg}}
@@ -147,6 +154,8 @@ namespace Services.Cli
               stopPolicy        { mode (kill | ctrl-c | command), command, timeoutSeconds }
               account           { type (localsystem | localservice | networkservice | virtual | user), name }
               environment       服务级环境变量对象 { 变量名: 值 }（按变量名排序，值为未展开的原始文本），未设置时为 {}
+              secretEnvironment 敏感环境变量对象 { 变量名: 值 }，值默认为 null（遮蔽），--show-secrets 时为真实值；
+                                无权读取（非管理员）时同样为 null。未设置时为 {}
               dependencies      依赖的服务名数组（本服务启动前需先启动的 Windows 服务），无依赖时为 []
               createdAt         创建时间（ISO 8601）
               latestLogPath     最新日志文件路径，尚无日志时为 null
@@ -339,13 +348,14 @@ namespace Services.Cli
             {{Tool}} export - 导出服务配置为 JSON（可用于备份、版本管理，或修改后通过 apply 应用）
 
             用法:
-              {{Tool}} export [<服务>...] [-o <文件>]
+              {{Tool}} export [<服务>...] [-o <文件>] [--show-secrets]
 
             参数:
               <服务>                要导出的服务（ID 或名称），可指定多个；省略时导出全部服务
 
             选项:
               -o, --output <文件>   写入文件（UTF-8）；省略或为 "-" 时输出到标准输出
+              --show-secrets        同时导出敏感环境变量的值（默认只导出变量名，值为 null；需要管理员权限）
 
             输出格式（与 apply 的输入相同）:
               {
@@ -360,6 +370,7 @@ namespace Services.Cli
                     "startup": "auto",                   // auto | delayed-auto | manual | disabled
                     "account": "virtual",                // localsystem | localservice | networkservice | virtual | 用户名
                     "environment": { "NODE_ENV": "production" },
+                    "secretEnvironment": { "API_KEY": null }, // null 表示沿用已保存的值
                     "dependencies": [ "Tcpip" ],
                     "autoRestart": true,
                     "restartPolicy": { "delaySeconds": 5, "maxRestarts": 5, "resetMinutes": 10, "backoff": true },
@@ -367,7 +378,7 @@ namespace Services.Cli
                   }
                 ]
               }
-              不包含服务 ID、运行状态与密码。
+              不包含服务 ID、运行状态与密码；敏感环境变量默认只含变量名。
 
             权限: 普通权限即可。
             """;
@@ -390,6 +401,8 @@ namespace Services.Cli
               - 配置文件中出现未知字段、取值非法、名称重复、可执行文件不存在时，在修改任何服务之前报错（退出码 2）。
               - 配置文件不含密码：需要创建或切换到“指定用户”账户的服务会被拒绝，
                 请先用 '{{Tool}} update <服务> --account <用户> --password-stdin' 设置；账户不变时沿用原密码。
+              - secretEnvironment 中值为 null 的变量沿用服务中已保存的值（新建服务或该变量尚未保存时报错）；
+                写出值则按新值设置。
               - 按顺序执行，遇到错误立即停止并报告已完成的部分（退出码 1）。
 
             输出:

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using Microsoft.Win32;
 using Services.Core.Helpers;
 using Services.Core.Models;
@@ -39,6 +40,9 @@ namespace Services.Core.Storage
             key.SetValue(ParameterNames.StopCommand, config.StopCommand ?? "");
             key.SetValue(ParameterNames.StopTimeoutSeconds, config.StopTimeoutSeconds, RegistryValueKind.DWord);
             key.SetValue(ParameterNames.Environment, EnvironmentVariables.FormatLines(config.Environment), RegistryValueKind.MultiString);
+            // 敏感变量只在此记录变量名，值由 SecretStore 写入受保护的子键
+            key.SetValue(ParameterNames.SecretEnvironmentNames,
+                config.SecretEnvironment.Keys.OrderBy(k => k, StringComparer.OrdinalIgnoreCase).ToArray(), RegistryValueKind.MultiString);
 
             if (isNew)
             {
@@ -93,6 +97,16 @@ namespace Services.Core.Storage
                 ? (ServiceStartupType)start : ServiceStartupType.Auto;
             var accountName = serviceKey.GetValue(ScmValueNames.ObjectName) as string;
 
+            // 敏感变量：名称公开记录；值只有有权读取受保护子键时才能取得（以名称列表为准，丢弃多余的值）
+            var names = (p.GetValue(ParameterNames.SecretEnvironmentNames) as string[] ?? Array.Empty<string>())
+                .Where(n => !string.IsNullOrWhiteSpace(n)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            var secrets = names.Count == 0 ? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) : SecretStore.TryRead(serviceId);
+            if (secrets != null)
+            {
+                secrets = names.ToDictionary(name => name, name => secrets.TryGetValue(name, out var value) ? value : "",
+                    StringComparer.OrdinalIgnoreCase);
+            }
+
             return new Service
             {
                 Id = serviceId,
@@ -113,6 +127,8 @@ namespace Services.Core.Storage
                 AccountType = ServiceAccounts.ParseObjectName(accountName),
                 AccountName = string.IsNullOrWhiteSpace(accountName) ? ServiceAccounts.LocalSystemName : accountName,
                 Environment = EnvironmentVariables.ParseLenient(p.GetValue(ParameterNames.Environment) as string[]),
+                SecretEnvironment = secrets ?? names.ToDictionary(name => name, _ => "", StringComparer.OrdinalIgnoreCase),
+                SecretsReadable = secrets != null,
                 Dependencies = ServiceDependencies.ParseRegistry(serviceKey.GetValue(ScmValueNames.DependOnService) as string[]),
                 CreatedAt = DateTime.TryParse(p.GetValue(ParameterNames.CreatedAt) as string, out var createdAt) ? createdAt : DateTime.Now,
                 UpdatedAt = DateTime.Now,

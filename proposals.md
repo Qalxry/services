@@ -191,7 +191,7 @@ WinForms/WPF 框架）；升级 GUI 必须停止所有服务；服务绑定在 G
 | B | 包装器生命周期状态机（消除启动 / 重启 / 停止竞态） | P0 | 已完成 |
 | C | 受保护的版本化包装器目录（升级免停服务、自动清理、修复提权风险） | P0 | 已完成 |
 | R | 代码结构整理（含 J：UI 与应用层解耦） | P1 | 已完成 |
-| D | 环境变量等敏感配置的保护 | P1 | 待办 |
+| D | 环境变量等敏感配置的保护 | P1 | 已完成 |
 | E | `servicesctl doctor` 诊断命令 | P1 | 待办 |
 | F | 资源限制（内存 / CPU，基于 Job Object） | P1 | 待办 |
 | G | 健康检查与看门狗 | P1 | 待办 |
@@ -286,6 +286,14 @@ GUI 与 CLI 存在重复的展示文本函数；注册表字段名为分散的�
 
 收紧 `Services\<ID>\Parameters` 的 ACL（SYSTEM、Administrators、服务运行账户可读），
 或对标记为敏感的环境变量使用 DPAPI（LocalMachine 范围）加密存储；GUI / CLI 默认遮蔽敏感值，`--show-secrets` 显式查看。
+
+**实施**：采用“敏感变量 + 受保护子键”而非收紧整个 Parameters：
+- 整个 Parameters 只允许管理员读取会使 `servicesctl list / get` 无法以普通权限运行；因此只把标记为敏感的变量
+  放入 `Parameters\Secrets`（禁止继承，SYSTEM / Administrators 完全控制，服务运行账户只读，账户变更时同步更新 ACL），
+  变量名仍公开记录在 `SecretEnvironmentNames`。
+- 未使用 DPAPI：LocalMachine 范围的 DPAPI 本机任何进程都能解密，起不到额外的访问控制作用，ACL 才是实际的保护。
+- CLI：`--secret-env KEY=VALUE`；`get` / `list --json` / `export` 默认遮蔽，`--show-secrets` 显示；
+  配置文件 `secretEnvironment` 中值为 null 表示沿用已保存的值。GUI：独立的“敏感环境变量”输入框，已保存的值显示为 `******`。
 
 ## E. `servicesctl doctor`（P1）
 

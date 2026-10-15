@@ -7,10 +7,11 @@ namespace Services.Cli
             var ops = await OpenAsync();
             var service = await ops.FindAsync(args.Positionals[0]);
 
+            bool showSecrets = args.HasFlag("show-secrets");
             if (args.Json)
-                WriteJson(ToInfo(service, ops), CliJsonContext.Readable.ServiceInfo);
+                WriteJson(ToInfo(service, ops, showSecrets), CliJsonContext.Readable.ServiceInfo);
             else
-                WriteServiceText(service, ops);
+                WriteServiceText(service, ops, showSecrets);
             return ExitCodes.Success;
         }
     }

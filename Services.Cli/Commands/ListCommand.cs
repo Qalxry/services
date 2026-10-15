@@ -11,7 +11,7 @@ namespace Services.Cli
 
             if (args.Json)
             {
-                WriteJson(services.Select(s => ToInfo(s, ops)).ToList(), CliJsonContext.Readable.ListServiceInfo);
+                WriteJson(services.Select(s => ToInfo(s, ops, args.HasFlag("show-secrets"))).ToList(), CliJsonContext.Readable.ListServiceInfo);
                 return ExitCodes.Success;
             }
 

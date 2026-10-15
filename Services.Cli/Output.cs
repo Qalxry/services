@@ -34,7 +34,7 @@ namespace Services.Cli
             return ExitCodes.Success;
         }
 
-        private static ServiceInfo ToInfo(Service s, ServiceOperations ops)
+        private static ServiceInfo ToInfo(Service s, ServiceOperations ops, bool showSecrets = false)
         {
             return new ServiceInfo
             {
@@ -71,6 +71,9 @@ namespace Services.Cli
                 Environment = s.Environment
                     .OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
                     .ToDictionary(pair => pair.Key, pair => pair.Value),
+                SecretEnvironment = s.SecretEnvironment
+                    .OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
+                    .ToDictionary(pair => pair.Key, pair => showSecrets && s.SecretsReadable ? pair.Value : null),
                 Dependencies = s.Dependencies.ToList(),
                 CreatedAt = s.CreatedAt,
                 LatestLogPath = ops.LatestLogPath(s.Id),
@@ -110,9 +113,9 @@ namespace Services.Cli
         /// <summary>
         /// 详情文本：与 GUI 详情对话框使用同一组行（Presentation.ServiceDetails）
         /// </summary>
-        private static void WriteServiceText(Service service, ServiceOperations ops)
+        private static void WriteServiceText(Service service, ServiceOperations ops, bool showSecrets = false)
         {
-            var rows = ServiceDetails.Build(service, ops.ReadRuntime(service.Id), ops.LatestLogPath(service.Id), DateTime.Now);
+            var rows = ServiceDetails.Build(service, ops.ReadRuntime(service.Id), ops.LatestLogPath(service.Id), DateTime.Now, showSecrets);
 
             int width = rows.Max(r => DisplayWidth(r.Label));
             foreach (var row in rows)

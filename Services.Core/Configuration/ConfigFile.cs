@@ -38,6 +38,10 @@ namespace Services.Core.Configuration
         /// <summary>localsystem / localservice / networkservice / virtual / 用户名，默认 localsystem</summary>
         public string? Account { get; set; }
         public Dictionary<string, string>? Environment { get; set; }
+        /// <summary>
+        /// 敏感环境变量。值为 null 表示沿用服务中已保存的值（export 默认不导出值）；新建服务时必须提供值。
+        /// </summary>
+        public Dictionary<string, string?>? SecretEnvironment { get; set; }
         public List<string>? Dependencies { get; set; }
         public bool AutoRestart { get; set; }
         public RestartPolicyDefinition? RestartPolicy { get; set; }
@@ -130,7 +134,13 @@ namespace Services.Core.Configuration
             }
         }
 
-        public static ServiceDefinition ToDefinition(Service service)
+        /// <summary>
+        /// ToConfig 中表示“沿用已保存的敏感变量值”的占位值（含 NUL，不可能是合法的变量值），由 ApplyPlanner 解析
+        /// </summary>
+        public const string KeepExistingSecret = "\0<keep>";
+
+        /// <param name="includeSecretValues">是否导出敏感环境变量的值；否则只导出变量名（值为 null）</param>
+        public static ServiceDefinition ToDefinition(Service service, bool includeSecretValues = false)
         {
             return new ServiceDefinition
             {
@@ -145,6 +155,10 @@ namespace Services.Core.Configuration
                     ? null
                     : service.Environment.OrderBy(p => p.Key, StringComparer.OrdinalIgnoreCase)
                         .ToDictionary(p => p.Key, p => p.Value, StringComparer.OrdinalIgnoreCase),
+                SecretEnvironment = service.SecretEnvironment.Count == 0
+                    ? null
+                    : service.SecretEnvironment.OrderBy(p => p.Key, StringComparer.OrdinalIgnoreCase)
+                        .ToDictionary(p => p.Key, p => includeSecretValues ? p.Value : null, StringComparer.OrdinalIgnoreCase),
                 Dependencies = service.Dependencies.Count == 0 ? null : service.Dependencies.ToList(),
                 AutoRestart = service.AutoRestart,
                 RestartPolicy = new RestartPolicyDefinition
@@ -193,6 +207,8 @@ namespace Services.Core.Configuration
                 AccountType = accountType,
                 AccountName = accountName,
                 Environment = EnvironmentVariables.Clone(definition.Environment),
+                SecretEnvironment = (definition.SecretEnvironment ?? new Dictionary<string, string?>())
+                    .ToDictionary(p => p.Key.Trim(), p => p.Value ?? KeepExistingSecret, StringComparer.OrdinalIgnoreCase),
                 Dependencies = (definition.Dependencies ?? new List<string>()).Select(d => d.Trim()).ToList(),
                 AutoRestart = definition.AutoRestart,
                 RestartDelaySeconds = CheckRange(restart.DelaySeconds, 1, 3600, $"{path}.restartPolicy.delaySeconds"),
@@ -214,6 +230,21 @@ namespace Services.Core.Configuration
             {
                 throw new ConfigFileException($"{path}.environment: {ex.Message}");
             }
+            try
+            {
+                EnvironmentVariables.Validate(config.SecretEnvironment
+                    .Where(p => p.Value != KeepExistingSecret)
+                    .ToDictionary(p => p.Key, p => p.Value, StringComparer.OrdinalIgnoreCase));
+                foreach (var key in config.SecretEnvironment.Keys.Where(k => string.IsNullOrWhiteSpace(k)))
+                    throw new ArgumentException("变量名不能为空。");
+            }
+            catch (ArgumentException ex)
+            {
+                throw new ConfigFileException($"{path}.secretEnvironment: {ex.Message}");
+            }
+            var overlap = config.Environment.Keys.FirstOrDefault(config.SecretEnvironment.ContainsKey);
+            if (overlap != null)
+                throw new ConfigFileException($"{path}: 变量 '{overlap}' 不能同时出现在 environment 与 secretEnvironment 中。");
 
             return config;
         }
@@ -236,6 +267,7 @@ namespace Services.Core.Configuration
                 (desired.AccountType != ServiceAccountType.User ||
                  string.Equals(current.AccountName, desired.AccountName, StringComparison.OrdinalIgnoreCase)));
             Check("environment", EnvironmentEquals(current.Environment, desired.Environment));
+            Check("secretEnvironment", EnvironmentEquals(current.SecretEnvironment, desired.SecretEnvironment));
             Check("dependencies", current.Dependencies.Select(d => d.ToUpperInvariant()).OrderBy(d => d, StringComparer.Ordinal)
                 .SequenceEqual(desired.Dependencies.Select(d => d.ToUpperInvariant()).OrderBy(d => d, StringComparer.Ordinal)));
             Check("autoRestart", current.AutoRestart == desired.AutoRestart);

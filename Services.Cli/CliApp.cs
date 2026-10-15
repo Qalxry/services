@@ -13,17 +13,17 @@ namespace Services.Cli
     {
         private static readonly string[] ConfigValueOptions =
             { "exe", "workdir", "args", "description", "startup", "restart-delay", "max-restarts", "restart-reset",
-              "stop-mode", "stop-command", "stop-timeout", "account", "env", "unset-env", "depends-on" };
+              "stop-mode", "stop-command", "stop-timeout", "account", "env", "secret-env", "unset-env", "depends-on" };
 
-        private static readonly string[] ConfigRepeatableOptions = { "env", "unset-env", "depends-on" };
+        private static readonly string[] ConfigRepeatableOptions = { "env", "secret-env", "unset-env", "depends-on" };
 
         private static readonly string[] ConfigFlagOptions =
             { "auto-restart", "no-auto-restart", "backoff", "no-backoff", "password-stdin", "clear-env", "clear-depends" };
 
         private static readonly List<CommandSpec> Commands = new()
         {
-            new CommandSpec { Name = "list", Summary = "列出所有服务", Help = HelpText.List, Handler = ListAsync },
-            new CommandSpec { Name = "get", Summary = "查看服务详情", Help = HelpText.Get, MinPositionals = 1, MaxPositionals = 1, Handler = GetAsync },
+            new CommandSpec { Name = "list", Summary = "列出所有服务", Help = HelpText.List, FlagOptions = new[] { "show-secrets" }, Handler = ListAsync },
+            new CommandSpec { Name = "get", Summary = "查看服务详情", Help = HelpText.Get, MinPositionals = 1, MaxPositionals = 1, FlagOptions = new[] { "show-secrets" }, Handler = GetAsync },
             new CommandSpec
             {
                 Name = "create", Summary = "创建服务", Help = HelpText.Create, RequiresAdmin = true,
@@ -54,7 +54,7 @@ namespace Services.Cli
             new CommandSpec
             {
                 Name = "export", Summary = "导出服务配置（JSON）", Help = HelpText.Export, MaxPositionals = int.MaxValue,
-                ValueOptions = new[] { "output" }, ShortAliases = new Dictionary<string, string> { ["o"] = "output" }, Handler = ExportAsync
+                ValueOptions = new[] { "output" }, FlagOptions = new[] { "show-secrets" }, ShortAliases = new Dictionary<string, string> { ["o"] = "output" }, Handler = ExportAsync
             },
             new CommandSpec
             {

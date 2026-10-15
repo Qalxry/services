@@ -70,6 +70,8 @@ namespace Services.Core.Services
                 SyncFailureActionsFlag(_settings.Restart.Enabled);
 
                 InitLogger();
+                if (_settings.SecretsUnavailable)
+                    LogSystem("Warning: secret environment variables could not be read by the service account and were not set");
                 CleanupLogsInBackground();
                 EnterJobObject();
 

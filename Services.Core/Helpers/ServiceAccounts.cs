@@ -119,7 +119,7 @@ namespace Services.Core.Helpers
             info.SetAccessControl(security);
         }
 
-        private static SecurityIdentifier ResolveSid(string accountName)
+        public static SecurityIdentifier ResolveSid(string accountName)
         {
             // ".\user" 表示本机账户，NTAccount 无法直接解析
             var name = accountName.StartsWith(@".\", StringComparison.Ordinal)

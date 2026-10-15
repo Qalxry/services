@@ -199,6 +199,9 @@ namespace Services.Core.Services
                 Step("service account", () => ServiceAccountSetup.Apply(serviceId, config, password));
             if (delayedAutoStart)
                 Step("delayed auto start", () => ScmClient.SetDelayedAutoStart(serviceId, true));
+            // 账户确定后再写入敏感变量，ACL 中的运行账户（如虚拟账户）此时才能解析
+            Step("secret environment", () => SecretStore.Write(serviceId, config.SecretEnvironment,
+                ServiceAccounts.ToObjectName(config.AccountType, serviceId, config.AccountName)));
 
             EnsureEventSource(serviceId);
             ScmClient.SetDescription(serviceId, BuildServiceDescription(config));
@@ -245,6 +248,9 @@ namespace Services.Core.Services
 
             if (applyAccount)
                 ServiceAccountSetup.Apply(serviceId, config, password);
+            // 每次都重写：内容可能变化，运行账户变化时 ACL 也要随之更新
+            SecretStore.Write(serviceId, config.SecretEnvironment,
+                ServiceAccounts.ToObjectName(config.AccountType, serviceId, config.AccountName));
             EnsureEventSource(serviceId);
 
             await LoadServicesAsync();
@@ -297,6 +303,10 @@ namespace Services.Core.Services
                 throw new ArgumentException("Stop command is required when stop mode is 'command'.");
 
             EnvironmentVariables.Validate(config.Environment);
+            EnvironmentVariables.Validate(config.SecretEnvironment);
+            var overlap = config.Environment.Keys.FirstOrDefault(config.SecretEnvironment.ContainsKey);
+            if (overlap != null)
+                throw new ArgumentException($"Environment variable '{overlap}' is defined both as normal and secret.");
         }
 
         /// <summary>

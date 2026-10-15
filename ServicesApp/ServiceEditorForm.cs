@@ -22,6 +22,7 @@ namespace ServicesApp
         private readonly TextBox _workDirBox;
         private readonly TextBox _descriptionBox;
         private readonly TextBox _environmentBox;
+        private readonly TextBox _secretEnvironmentBox;
         private readonly CheckBox _autoRestartCheck;
         private readonly NumberBox _restartDelayBox;
         private readonly NumberBox _maxRestartsBox;
@@ -101,6 +102,20 @@ namespace ServicesApp
                 MaxHeight = 120
             };
             ScrollViewer.SetVerticalScrollBarVisibility(_environmentBox, ScrollBarVisibility.Auto);
+
+            // Secret environment variables (values masked)
+            _secretEnvironmentBox = new TextBox
+            {
+                Header = "敏感环境变量 (可选)",
+                PlaceholderText = "API_KEY=...",
+                Description = $"每行一个 KEY=VALUE；值只有 SYSTEM、管理员与运行账户可读，界面中显示为 {ServiceText.SecretMask}，保持不变即沿用原值",
+                AcceptsReturn = true,
+                TextWrapping = TextWrapping.Wrap,
+                FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas"),
+                MinHeight = 40,
+                MaxHeight = 120
+            };
+            ScrollViewer.SetVerticalScrollBarVisibility(_secretEnvironmentBox, ScrollBarVisibility.Auto);
 
             // Auto Restart
 
@@ -208,6 +223,7 @@ namespace ServicesApp
             form.Add(_argsBox);
             form.Add(_descriptionBox);
             form.Add(_environmentBox);
+            form.Add(_secretEnvironmentBox);
             form.Add(_autoRestartCheck, null);
             form.Add(_restartPolicyPanel);
             form.Add(_stopModeBox, _stopTimeoutBox);
@@ -225,6 +241,8 @@ namespace ServicesApp
                 _workDirBox.Text = existing.WorkingDir ?? "";
                 _descriptionBox.Text = existing.Description ?? "";
                 _environmentBox.Text = NormalizeLineEndings(EnvironmentVariables.Format(existing.Environment));
+                _secretEnvironmentBox.Text = NormalizeLineEndings(
+                    ServiceText.SecretEnvironment(existing.SecretEnvironment, readable: true, showValues: false));
                 _autoRestartCheck.IsChecked = existing.AutoRestart;
                 _restartPolicyPanel.Visibility = existing.AutoRestart ? Visibility.Visible : Visibility.Collapsed;
                 _restartDelayBox.Value = existing.RestartDelaySeconds;
@@ -381,9 +399,17 @@ namespace ServicesApp
             {
                 error = "可执行文件不存在，请检查路径。";
             }
-            else if (!TryParseEnvironment(out _, out var environmentError))
+            else if (!TryParseEnvironment(out var environment, out var environmentError))
             {
                 error = environmentError;
+            }
+            else if (!TryParseSecretEnvironment(out var secrets, out var secretError))
+            {
+                error = secretError;
+            }
+            else if (environment.Keys.FirstOrDefault(secrets.ContainsKey) is { } overlap)
+            {
+                error = $"变量 '{overlap}' 不能同时作为普通与敏感环境变量。";
             }
             else if (!TryParseDependencies(out _, out var dependenciesError))
             {
@@ -424,6 +450,27 @@ namespace ServicesApp
             }
         }
 
+        /// <summary>
+        /// 解析敏感变量；值仍为遮蔽值的已有变量沿用原值
+        /// </summary>
+        private bool TryParseSecretEnvironment(out Dictionary<string, string> secrets, out string? error)
+        {
+            try
+            {
+                var edited = EnvironmentVariables.ParseText(_secretEnvironmentBox.Text);
+                secrets = EnvironmentVariables.RestoreMasked(edited,
+                    _existing?.SecretEnvironment ?? EnvironmentVariables.Clone(null), ServiceText.SecretMask);
+                error = null;
+                return true;
+            }
+            catch (ArgumentException ex)
+            {
+                secrets = EnvironmentVariables.Clone(null);
+                error = "敏感" + ex.Message;
+                return false;
+            }
+        }
+
         private bool TryParseDependencies(out List<string> dependencies, out string? error)
         {
             dependencies = ServiceDependencies.ParseText(_dependenciesBox.Text);
@@ -443,6 +490,7 @@ namespace ServicesApp
         public ServiceConfig ToConfig()
         {
             TryParseEnvironment(out var environment, out _);
+            TryParseSecretEnvironment(out var secrets, out _);
             TryParseDependencies(out var dependencies, out _);
             var (startupType, delayedAutoStart) = ServiceStartupModes.FromIndex(_startupBox.SelectedIndex);
             return new ServiceConfig
@@ -463,6 +511,7 @@ namespace ServicesApp
                 AccountType = SelectedAccountType,
                 AccountName = SelectedAccountType == ServiceAccountType.User ? _accountNameBox.Text.Trim() : null,
                 Environment = environment,
+                SecretEnvironment = secrets,
                 StartupType = startupType,
                 DelayedAutoStart = delayedAutoStart,
                 Dependencies = dependencies

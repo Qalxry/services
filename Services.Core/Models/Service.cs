@@ -123,6 +123,15 @@ namespace Services.Core.Models
         /// <summary>服务级环境变量（启动目标程序时叠加在继承的环境之上，值可用 %VAR% 引用现有变量）；变量名不区分大小写</summary>
         public IReadOnlyDictionary<string, string> Environment { get; set; } = EnvironmentVariables.Clone(null);
 
+        /// <summary>
+        /// 敏感环境变量（如密钥）：值保存在只有 SYSTEM、管理员与服务运行账户可读的注册表子键中，界面默认遮蔽。
+        /// 无权读取时（非管理员）只有变量名，值为空字符串，且 <see cref="SecretsReadable"/> 为 false。
+        /// </summary>
+        public IReadOnlyDictionary<string, string> SecretEnvironment { get; set; } = EnvironmentVariables.Clone(null);
+
+        /// <summary>敏感环境变量的值是否已读取（无权读取时为 false）</summary>
+        public bool SecretsReadable { get; set; } = true;
+
         /// <summary>本服务启动前需先启动的服务名（Windows 服务名，可以是任意服务）；名称不区分大小写</summary>
         public IReadOnlyList<string> Dependencies { get; set; } = ServiceDependencies.Clone(null);
 
@@ -154,6 +163,8 @@ namespace Services.Core.Models
             AccountType = other.AccountType;
             AccountName = other.AccountName;
             Environment = EnvironmentVariables.Clone(other.Environment);
+            SecretEnvironment = EnvironmentVariables.Clone(other.SecretEnvironment);
+            SecretsReadable = other.SecretsReadable;
             Dependencies = ServiceDependencies.Clone(other.Dependencies);
             CreatedAt = other.CreatedAt;
             UpdatedAt = other.UpdatedAt;
@@ -194,6 +205,8 @@ namespace Services.Core.Models
         public string? AccountName { get; set; }
         /// <summary>服务级环境变量；变量名不区分大小写，空表示不额外设置</summary>
         public IReadOnlyDictionary<string, string> Environment { get; set; } = EnvironmentVariables.Clone(null);
+        /// <summary>敏感环境变量（受保护存储，界面遮蔽）；变量名不能与 Environment 重复</summary>
+        public IReadOnlyDictionary<string, string> SecretEnvironment { get; set; } = EnvironmentVariables.Clone(null);
         public ServiceStartupType StartupType { get; set; } = ServiceStartupType.Auto;
         /// <summary>延迟自动启动；仅在启动类型为 Auto 时有效，其他类型保存时按 false 处理</summary>
         public bool DelayedAutoStart { get; set; }
@@ -223,6 +236,7 @@ namespace Services.Core.Models
                 AccountType = service.AccountType,
                 AccountName = service.AccountName,
                 Environment = EnvironmentVariables.Clone(service.Environment),
+                SecretEnvironment = EnvironmentVariables.Clone(service.SecretEnvironment),
                 StartupType = service.StartupType,
                 DelayedAutoStart = service.DelayedAutoStart,
                 Dependencies = ServiceDependencies.Clone(service.Dependencies)

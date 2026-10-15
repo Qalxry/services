@@ -10,7 +10,7 @@ namespace Services.Cli
         {
             var ops = await OpenAsync();
             var services = args.Positionals.Count == 0 ? null : await ops.FindManyAsync(args.Positionals);
-            var file = await new ConfigApplier(ops).ExportAsync(services);
+            var file = await new ConfigApplier(ops).ExportAsync(services, args.HasFlag("show-secrets"));
             var json = ConfigFileMapper.Serialize(file);
 
             var output = args.GetValue("output");

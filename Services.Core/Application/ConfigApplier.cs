@@ -21,12 +21,12 @@ namespace Services.Core.Application
         }
 
         /// <summary>
-        /// 导出服务配置；services 为 null 时导出全部（按添加顺序）
+        /// 导出服务配置；services 为 null 时导出全部（按添加顺序）。敏感环境变量默认只导出变量名。
         /// </summary>
-        public async Task<ConfigFile> ExportAsync(IReadOnlyList<Service>? services = null)
+        public async Task<ConfigFile> ExportAsync(IReadOnlyList<Service>? services = null, bool includeSecretValues = false)
         {
             var selected = services ?? await _operations.ListAsync();
-            return new ConfigFile { Services = selected.Select(ConfigFileMapper.ToDefinition).ToList() };
+            return new ConfigFile { Services = selected.Select(s => ConfigFileMapper.ToDefinition(s, includeSecretValues)).ToList() };
         }
 
         /// <summary>

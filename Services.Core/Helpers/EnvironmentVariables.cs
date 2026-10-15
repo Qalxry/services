@@ -126,6 +126,18 @@ namespace Services.Core.Helpers
         }
 
         /// <summary>
+        /// 编辑界面中敏感变量以遮蔽值显示：值仍为遮蔽值、且原先已有该变量时沿用原值，其余按输入的新值。
+        /// </summary>
+        public static Dictionary<string, string> RestoreMasked(IReadOnlyDictionary<string, string> edited,
+            IReadOnlyDictionary<string, string> saved, string mask)
+        {
+            var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (key, value) in edited)
+                result[key] = value == mask && saved.TryGetValue(key, out var original) ? original : value;
+            return result;
+        }
+
+        /// <summary>
         /// 解析单个条目，成功返回 null，否则返回错误原因
         /// </summary>
         private static string? TryParseEntry(string entry, out string key, out string value)

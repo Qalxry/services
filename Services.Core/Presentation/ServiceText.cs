@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using Services.Core.Helpers;
 using Services.Core.Models;
 
@@ -10,6 +12,9 @@ namespace Services.Core.Presentation
     public static class ServiceText
     {
         private const string TimeFormat = "yyyy-MM-dd HH:mm:ss";
+
+        /// <summary>遮蔽后的敏感值</summary>
+        public const string SecretMask = "******";
 
         /// <summary>启动模式下拉框的显示文本，顺序即 <see cref="ServiceStartupModes.ToIndex"/> 的索引</summary>
         public static readonly string[] StartupModeNames = { "开机自启", "延迟自动启动", "手动启动", "已禁用" };
@@ -90,5 +95,13 @@ namespace Services.Core.Presentation
         }
 
         public static string Time(DateTime time) => time.ToString(TimeFormat);
+
+        /// <summary>
+        /// 敏感环境变量：KEY=****** 行（showValues 时显示真实值）；无权读取时值显示为“（无权读取）”
+        /// </summary>
+        public static string SecretEnvironment(IReadOnlyDictionary<string, string> secrets, bool readable, bool showValues) =>
+            string.Join("\n", secrets
+                .OrderBy(p => p.Key, StringComparer.OrdinalIgnoreCase)
+                .Select(p => $"{p.Key}={(!readable ? "（无权读取）" : showValues ? p.Value : SecretMask)}"));
     }
 }

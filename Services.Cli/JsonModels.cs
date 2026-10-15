@@ -27,6 +27,8 @@ namespace Services.Cli
         public AccountInfo Account { get; set; } = new();
         /// <summary>服务级环境变量（名称 → 值，按名称排序）；值中的 %VAR% 引用在启动时展开。未设置时为空对象</summary>
         public Dictionary<string, string> Environment { get; set; } = new();
+        /// <summary>敏感环境变量（名称 → 值）。默认值为 null（遮蔽），--show-secrets 时为真实值；未设置时为空对象</summary>
+        public Dictionary<string, string?> SecretEnvironment { get; set; } = new();
         /// <summary>本服务启动前需先启动的服务名（Windows 服务名）。无依赖时为空数组</summary>
         public List<string> Dependencies { get; set; } = new();
         public DateTime CreatedAt { get; set; }

@@ -22,12 +22,16 @@ namespace Services.Core.Configuration
 
                 if (matches.Count == 0)
                 {
+                    var missing = config.SecretEnvironment.FirstOrDefault(p => p.Value == ConfigFileMapper.KeepExistingSecret).Key;
+                    if (missing != null)
+                        throw new ConfigFileException($"服务 '{config.Name}' 尚不存在，secretEnvironment.{missing} 必须提供值。");
                     RejectUserAccount(config, "创建");
                     plan.Add(new ApplyPlanItem("create", config.Name, null, new List<string>(), config));
                     continue;
                 }
 
                 var service = matches[0];
+                config.SecretEnvironment = ResolveSecrets(config, service);
                 var changes = ConfigFileMapper.Diff(ServiceConfig.FromService(service), config);
                 if (changes.Contains("account")) RejectUserAccount(config, "切换到");
                 if (config.AccountType == ServiceAccountType.User && service.AccountType == ServiceAccountType.User)
@@ -54,6 +58,32 @@ namespace Services.Core.Configuration
                     throw new ConfigFileException($"服务 '{item.Name}' 的可执行文件不存在: {item.Config.ExePath}");
             }
             return plan;
+        }
+
+        /// <summary>
+        /// 值为 null（沿用已保存的值）的敏感变量替换为服务中保存的值。
+        /// 无权读取已保存的值时（非管理员执行 --dry-run）服务中的值为空字符串：沿用视为不变，
+        /// 文件中写出的新值则与空字符串比较，视为有变化（无法确认是否与已保存的值相同）。
+        /// </summary>
+        private static Dictionary<string, string> ResolveSecrets(ServiceConfig config, Service service)
+        {
+            var resolved = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (key, value) in config.SecretEnvironment)
+            {
+                if (value != ConfigFileMapper.KeepExistingSecret)
+                {
+                    resolved[key] = value;
+                }
+                else if (service.SecretEnvironment.TryGetValue(key, out var saved))
+                {
+                    resolved[key] = saved;
+                }
+                else
+                {
+                    throw new ConfigFileException($"服务 '{config.Name}' 中没有已保存的敏感变量 '{key}'，secretEnvironment.{key} 必须提供值。");
+                }
+            }
+            return resolved;
         }
 
         /// <summary>

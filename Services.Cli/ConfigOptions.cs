@@ -111,32 +111,39 @@ namespace Services.Cli
                 changed++;
             }
 
-            // 环境变量按 clear → unset → set 的顺序处理，因此可在一条命令中重置并重新设置
+            // 环境变量按 clear → unset → set 的顺序处理，因此可在一条命令中重置并重新设置。
+            // 普通与敏感变量共用一个命名空间：--env 设置的变量从敏感变量中移除，反之亦然
             var unsetEnv = args.GetValues("unset-env");
             var setEnv = args.GetValues("env");
-            if (args.HasFlag("clear-env") || unsetEnv.Count > 0 || setEnv.Count > 0)
+            var setSecretEnv = args.GetValues("secret-env");
+            if (args.HasFlag("clear-env") || unsetEnv.Count > 0 || setEnv.Count > 0 || setSecretEnv.Count > 0)
             {
                 var environment = EnvironmentVariables.Clone(config.Environment);
-                if (args.HasFlag("clear-env")) environment.Clear();
+                var secrets = EnvironmentVariables.Clone(config.SecretEnvironment);
+                if (args.HasFlag("clear-env"))
+                {
+                    environment.Clear();
+                    secrets.Clear();
+                }
                 foreach (var key in unsetEnv)
                 {
                     if (string.IsNullOrWhiteSpace(key))
                         throw new UsageException("--unset-env 的变量名不能为空。", args.Command);
                     environment.Remove(key.Trim());
+                    secrets.Remove(key.Trim());
                 }
-                foreach (var entry in setEnv)
+                foreach (var (key, value) in ParseEnvEntries(setEnv, "--env", args.Command))
                 {
-                    try
-                    {
-                        var (key, value) = EnvironmentVariables.ParseEntry(entry);
-                        environment[key] = value;
-                    }
-                    catch (ArgumentException ex)
-                    {
-                        throw new UsageException($"--env 参数错误：{ex.Message}（应为 KEY=VALUE）", args.Command);
-                    }
+                    secrets.Remove(key);
+                    environment[key] = value;
+                }
+                foreach (var (key, value) in ParseEnvEntries(setSecretEnv, "--secret-env", args.Command))
+                {
+                    environment.Remove(key);
+                    secrets[key] = value;
                 }
                 config.Environment = environment;
+                config.SecretEnvironment = secrets;
                 changed++;
             }
 
@@ -176,6 +183,23 @@ namespace Services.Cli
                 throw new UsageException($"工作目录不存在: {config.WorkingDir}", args.Command);
 
             return changed;
+        }
+
+        private static List<KeyValuePair<string, string>> ParseEnvEntries(IEnumerable<string> entries, string option, string command)
+        {
+            var result = new List<KeyValuePair<string, string>>();
+            foreach (var entry in entries)
+            {
+                try
+                {
+                    result.Add(EnvironmentVariables.ParseEntry(entry));
+                }
+                catch (ArgumentException ex)
+                {
+                    throw new UsageException($"{option} 参数错误：{ex.Message}（应为 KEY=VALUE）", command);
+                }
+            }
+            return result;
         }
 
         /// <summary>

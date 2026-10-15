@@ -27,7 +27,10 @@ namespace Services.Core.Wrapper
         public required string Args { get; init; }
         /// <summary>未配置时为程序所在目录</summary>
         public required string WorkingDir { get; init; }
+        /// <summary>普通与敏感环境变量合并后的结果</summary>
         public IReadOnlyDictionary<string, string> Environment { get; init; } = new Dictionary<string, string>();
+        /// <summary>配置了敏感环境变量但运行账户无权读取（ACL 被修改等），这些变量未设置</summary>
+        public bool SecretsUnavailable { get; init; }
         public RestartPolicySettings Restart { get; init; } = RestartPolicySettings.Default;
         public StopPolicySettings Stop { get; init; } = StopPolicySettings.Default;
 
@@ -40,13 +43,22 @@ namespace Services.Core.Wrapper
             if (string.IsNullOrEmpty(exePath)) throw new InvalidOperationException("ExePath is missing in registry");
 
             var workingDir = key.GetValue(ParameterNames.WorkingDir) as string;
+            var environment = Try(() => EnvironmentVariables.ParseLenient(key.GetValue(ParameterNames.Environment) as string[]),
+                new Dictionary<string, string>());
+            bool hasSecrets = key.GetValue(ParameterNames.SecretEnvironmentNames) is string[] { Length: > 0 };
+            var secrets = hasSecrets ? SecretStore.TryRead(serviceId) : null;
+            if (secrets != null)
+            {
+                foreach (var (name, value) in secrets) environment[name] = value;
+            }
+
             return new WrapperSettings
             {
                 ExePath = exePath,
                 Args = ServiceUtils.NormalizeArgs(key.GetValue(ParameterNames.Args) as string),
                 WorkingDir = string.IsNullOrEmpty(workingDir) ? Path.GetDirectoryName(exePath) ?? "" : workingDir,
-                Environment = Try(() => EnvironmentVariables.ParseLenient(key.GetValue(ParameterNames.Environment) as string[]),
-                    new Dictionary<string, string>()),
+                Environment = environment,
+                SecretsUnavailable = hasSecrets && secrets == null,
                 Restart = Try(() => LoadRestartPolicy(key), RestartPolicySettings.Default),
                 Stop = Try(() => LoadStopPolicy(key), StopPolicySettings.Default)
             };
