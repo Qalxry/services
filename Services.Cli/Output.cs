@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using Services.Core.Application;
 using Services.Core.Health;
+using Services.Core.Notifications;
 using Services.Core.Helpers;
 using Services.Core.Models;
 using Services.Core.Presentation;
@@ -68,6 +69,11 @@ namespace Services.Cli
                     Mode = ToStopModeText(s.StopMode),
                     Command = string.IsNullOrEmpty(s.StopCommand) ? null : s.StopCommand,
                     TimeoutSeconds = s.StopTimeoutSeconds
+                },
+                Webhook = string.IsNullOrWhiteSpace(s.WebhookUrl) ? null : new WebhookInfo
+                {
+                    Url = showSecrets ? s.WebhookUrl : WebhookSettings.Mask(s.WebhookUrl),
+                    Events = WebhookEvents.Parse(s.WebhookEvents)
                 },
                 HealthCheck = s.HealthCheckType == HealthCheckType.None ? null : new HealthCheckInfo
                 {

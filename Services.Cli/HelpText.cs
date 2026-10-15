@@ -42,6 +42,11 @@ namespace Services.Cli
                                     {workdir} 工作目录（均自动加引号）、{pid} 进程 ID。
                                     例：nginx 用 "{exe} -s quit"（若启动参数含 -p / -c，停止命令需带相同参数）
               --stop-timeout <秒>   优雅停止的最长等待时间，1-3600，默认 30。系统关机时最多等待 4 秒
+              --webhook-url <URL>   本服务的失败通知地址（覆盖全局设置，见 '{{Tool}} help webhook'）；
+                                    为空字符串时清除，改为沿用全局设置。地址只有管理员与服务运行账户可读
+              --webhook-events <事件>
+                                    订阅的事件，逗号分隔：failed（以失败状态停止）、unhealthy（健康检查失败）、
+                                    restarting（异常退出后重启）；默认 failed,unhealthy
               --health-check <方式> 健康检查：none（默认）| http | tcp | command。连续失败达到 --health-retries 次时
                                     结束目标程序，再按失败自动重启策略处理（未启用自动重启则以失败状态停止服务）
               --health-target <目标>
@@ -183,6 +188,8 @@ namespace Services.Cli
               restartPolicy     { delaySeconds, maxRestarts (0=不限), resetMinutes, backoff }
               stopPolicy        { mode (kill | ctrl-c | command), command, timeoutSeconds }
               account           { type (localsystem | localservice | networkservice | virtual | user), name }
+              webhook           服务级失败通知 { url, events }，未设置（沿用全局）时为 null；
+                                url 默认遮蔽路径部分，--show-secrets 显示完整地址
               healthCheck       健康检查 { type, target, intervalSeconds, timeoutSeconds, failureThreshold,
                                 startPeriodSeconds }，未启用时为 null
               resourceLimits    资源限制 { memoryMB, processMemoryMB, cpuPercent, maxProcesses }，0 表示不限制
@@ -496,6 +503,44 @@ namespace Services.Cli
             退出码: 存在 error 级别的问题时为 1，否则为 0。
 
             权限: 普通权限即可；以管理员运行时检查更完整。
+            """;
+
+        public const string Webhook = $$"""
+            {{Tool}} webhook - 设置失败通知（Webhook），并可发送测试事件
+
+            用法:
+              {{Tool}} webhook [show] [--show-secrets] [--json]
+              {{Tool}} webhook set <URL> [--events <事件>] [--json]
+              {{Tool}} webhook clear [--json]
+              {{Tool}} webhook test [<服务>] [--json]
+
+            说明:
+              服务发生以下事件时，包装器向 Webhook POST 一个 JSON（失败重试 3 次，不影响服务运行）：
+                failed       服务以失败状态停止（放弃重启、未启用自动重启时异常退出、程序不存在等）
+                unhealthy    健康检查判定不健康（随后结束程序并按重启策略处理）
+                restarting   目标程序异常退出后安排重启（较频繁，默认不订阅）
+              全局设置对所有服务生效；服务可用 create / update --webhook-url 单独设置（优先于全局）。
+              Webhook 地址常含令牌，只有管理员与服务进程可以读取。修改后正在运行的服务需重启才生效。
+
+            操作:
+              show                  显示全局设置（默认遮蔽地址的路径部分）
+              set <URL>             设置全局 Webhook；--events 指定订阅的事件，默认 failed,unhealthy
+              clear                 清除全局 Webhook
+              test [<服务>]         立即发送一条 test 事件：指定服务时发往该服务生效的地址，否则发往全局地址
+
+            请求内容（application/json）:
+              { "event": "failed", "serviceId": "WinSvcMgr_MyApp_1a2b3c4d", "serviceName": "MyApp",
+                "host": "SERVER01", "time": "2026-10-15T10:20:30.123+08:00",
+                "message": "Process kept failing, gave up after 5 restarts (last exit code 1)",
+                "exitCode": 1, "restartCount": 5 }
+              exitCode / restartCount 没有时省略。2xx 响应视为成功。
+
+            输出:
+              --json 时输出 { ok, webhook: { url, events } | null, message }。
+
+            退出码: test 发送失败时为 1。
+
+            权限: 需要管理员。
             """;
 
         public const string Migrate = $$"""

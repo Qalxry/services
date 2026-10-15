@@ -24,6 +24,14 @@ namespace Services.Core.Storage
         public const string SecretsSubKey = "Secrets";
 
         public static string Secrets(string serviceId) => $@"{Parameters(serviceId)}\{SecretsSubKey}";
+
+        /// <summary>通知设置（Webhook 地址可能含令牌，ACL 同 Secrets）</summary>
+        public const string NotificationsSubKey = "Notifications";
+
+        public static string ServiceNotifications(string serviceId) => $@"{Parameters(serviceId)}\{NotificationsSubKey}";
+
+        /// <summary>全局通知设置：只允许 SYSTEM、管理员完全控制，所有服务进程（SERVICE 组）读取</summary>
+        public const string GlobalNotifications = Product + @"\" + NotificationsSubKey;
     }
 
     /// <summary>
@@ -75,6 +83,16 @@ namespace Services.Core.Storage
         public const string DependOnService = "DependOnService";
         public const string DelayedAutostart = "DelayedAutostart";
         public const string Start = "Start";
+    }
+
+    /// <summary>
+    /// 通知设置的值名（全局与服务级相同）
+    /// </summary>
+    public static class NotificationNames
+    {
+        public const string WebhookUrl = "WebhookUrl";
+        /// <summary>逗号分隔的事件名</summary>
+        public const string WebhookEvents = "WebhookEvents";
     }
 
     /// <summary>

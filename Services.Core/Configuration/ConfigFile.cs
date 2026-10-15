@@ -46,10 +46,20 @@ namespace Services.Core.Configuration
         public bool AutoRestart { get; set; }
         public RestartPolicyDefinition? RestartPolicy { get; set; }
         public StopPolicyDefinition? StopPolicy { get; set; }
+        /// <summary>服务级失败通知；省略表示沿用全局设置</summary>
+        public WebhookDefinition? Webhook { get; set; }
         /// <summary>健康检查；省略表示不检查</summary>
         public HealthCheckDefinition? HealthCheck { get; set; }
         /// <summary>资源限制；省略或各项为 0 表示不限制</summary>
         public ResourceLimitsDefinition? ResourceLimits { get; set; }
+    }
+
+    public sealed class WebhookDefinition
+    {
+        /// <summary>Webhook 地址；null 表示沿用服务中已保存的地址（export 默认如此，地址可能含令牌）</summary>
+        public string? Url { get; set; }
+        /// <summary>订阅的事件；省略为默认 failed、unhealthy</summary>
+        public List<string>? Events { get; set; }
     }
 
     public sealed class HealthCheckDefinition
@@ -198,6 +208,13 @@ namespace Services.Core.Configuration
                     Command = string.IsNullOrWhiteSpace(service.StopCommand) ? null : service.StopCommand,
                     TimeoutSeconds = service.StopTimeoutSeconds
                 },
+                Webhook = string.IsNullOrWhiteSpace(service.WebhookUrl)
+                    ? null
+                    : new WebhookDefinition
+                    {
+                        Url = includeSecretValues ? service.WebhookUrl : null,
+                        Events = Notifications.WebhookEvents.Parse(service.WebhookEvents)
+                    },
                 HealthCheck = service.HealthCheckType == HealthCheckType.None
                     ? null
                     : new HealthCheckDefinition
@@ -268,6 +285,8 @@ namespace Services.Core.Configuration
                 StopMode = ParseStopMode(stop.Mode, path),
                 StopCommand = stop.Command?.Trim() ?? "",
                 StopTimeoutSeconds = CheckRange(stop.TimeoutSeconds, 1, StopPolicyDefaults.MaxTimeoutSeconds, $"{path}.stopPolicy.timeoutSeconds"),
+                WebhookUrl = definition.Webhook == null ? "" : definition.Webhook.Url?.Trim() ?? KeepExistingSecret,
+                WebhookEvents = ParseWebhookEvents(definition.Webhook?.Events, path),
                 HealthCheckType = healthType,
                 HealthCheckTarget = healthType == HealthCheckType.None ? "" : health!.Target?.Trim() ?? "",
                 HealthCheckIntervalSeconds = CheckRange(health?.IntervalSeconds ?? HealthCheckDefaults.IntervalSeconds, 1,
@@ -288,6 +307,8 @@ namespace Services.Core.Configuration
                 throw new ConfigFileException($"{path}.stopPolicy.command 不能为空（mode 为 command）。");
             if (Health.HealthCheckSpec.Validate(config.HealthCheckType, config.HealthCheckTarget) is { } healthError)
                 throw new ConfigFileException($"{path}.healthCheck.target: {healthError}。");
+            if (config.WebhookUrl != KeepExistingSecret && Notifications.WebhookSettings.ValidateUrl(config.WebhookUrl) is { } webhookError)
+                throw new ConfigFileException($"{path}.webhook.url: {webhookError}。");
             try
             {
                 EnvironmentVariables.Validate(config.Environment);
@@ -344,6 +365,10 @@ namespace Services.Core.Configuration
             Check("stopPolicy", current.StopMode == desired.StopMode &&
                 Normalize(current.StopCommand) == Normalize(desired.StopCommand) &&
                 current.StopTimeoutSeconds == desired.StopTimeoutSeconds);
+            Check("webhook", Normalize(current.WebhookUrl) == Normalize(desired.WebhookUrl) &&
+                (string.IsNullOrWhiteSpace(desired.WebhookUrl) ||
+                 Notifications.WebhookEvents.Format(Notifications.WebhookEvents.Parse(current.WebhookEvents)) ==
+                 Notifications.WebhookEvents.Format(Notifications.WebhookEvents.Parse(desired.WebhookEvents))));
             Check("healthCheck", current.HealthCheckType == desired.HealthCheckType &&
                 (desired.HealthCheckType == HealthCheckType.None ||
                  Normalize(current.HealthCheckTarget) == Normalize(desired.HealthCheckTarget) &&
@@ -414,6 +439,19 @@ namespace Services.Core.Configuration
                 "command" => ServiceStopMode.Command,
                 _ => throw new ConfigFileException($"{path}.stopPolicy.mode 只能是 kill、ctrl-c 或 command，实际为 '{value}'。")
             };
+
+        private static string? ParseWebhookEvents(List<string>? events, string path)
+        {
+            if (events == null) return null;
+            try
+            {
+                return Notifications.WebhookEvents.Format(Notifications.WebhookEvents.Parse(string.Join(",", events)));
+            }
+            catch (ArgumentException ex)
+            {
+                throw new ConfigFileException($"{path}.webhook.events: {ex.Message}。");
+            }
+        }
 
         private static int CheckRange(int value, int min, int max, string field)
         {

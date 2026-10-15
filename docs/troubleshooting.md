@@ -62,6 +62,12 @@ servicesctl logs MyApp --stream stderr --since 10m
 - 程序启动较慢时被误判为不健康：增大 `--health-start-period`（宽限期内的失败不计数，一次成功即结束宽限）。
 - `servicesctl get` 的“健康状态”与 `runtime.healthStatus` 显示最近一次检查结果。
 
+## 失败通知
+
+- `servicesctl webhook test [<服务>]` 立即发送测试事件并报告结果。
+- 服务日志中的 `Webhook notified: <事件>` / `Webhook notification failed (<事件>): <原因>` 记录每次发送结果。
+- 修改 Webhook 后需重启服务才生效（包装器在启动时读取设置）。
+
 ## 升级与包装器
 
 - 服务运行的是 `%ProgramData%\ServicesApp\wrapper\` 中的副本，升级安装目录不需要停止服务。

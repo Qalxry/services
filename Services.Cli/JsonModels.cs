@@ -24,6 +24,8 @@ namespace Services.Cli
         public bool AutoRestart { get; set; }
         public RestartPolicyInfo RestartPolicy { get; set; } = new();
         public StopPolicyInfo StopPolicy { get; set; } = new();
+        /// <summary>服务级失败通知；未设置（沿用全局设置）时为 null</summary>
+        public WebhookInfo? Webhook { get; set; }
         /// <summary>健康检查配置；未启用时为 null</summary>
         public HealthCheckInfo? HealthCheck { get; set; }
         public ResourceLimitsInfo ResourceLimits { get; set; } = new();
@@ -82,6 +84,22 @@ namespace Services.Cli
         public string Mode { get; set; } = "kill";
         public string? Command { get; set; }
         public int TimeoutSeconds { get; set; }
+    }
+
+    internal sealed class WebhookInfo
+    {
+        /// <summary>Webhook 地址；默认遮蔽路径与查询部分（可能含令牌），--show-secrets 显示完整地址；无权读取时为 null</summary>
+        public string? Url { get; set; }
+        /// <summary>订阅的事件：failed / unhealthy / restarting</summary>
+        public List<string> Events { get; set; } = new();
+    }
+
+    internal sealed class WebhookResult
+    {
+        public bool Ok { get; set; } = true;
+        /// <summary>全局 Webhook；未设置时为 null</summary>
+        public WebhookInfo? Webhook { get; set; }
+        public string Message { get; set; } = "";
     }
 
     internal sealed class HealthCheckInfo
@@ -196,6 +214,7 @@ namespace Services.Cli
     [JsonSerializable(typeof(VersionInfo))]
     [JsonSerializable(typeof(MigrateResult))]
     [JsonSerializable(typeof(DoctorResult))]
+    [JsonSerializable(typeof(WebhookResult))]
     internal partial class CliJsonContext : JsonSerializerContext
     {
         /// <summary>

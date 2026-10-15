@@ -1,6 +1,7 @@
 using Services.Core.Health;
 using Services.Core.Helpers;
 using Services.Core.Models;
+using Services.Core.Notifications;
 using Services.Core.Services;
 
 namespace Services.Cli
@@ -92,6 +93,26 @@ namespace Services.Cli
             if (args.GetInt("stop-timeout", 1, StopPolicyDefaults.MaxTimeoutSeconds) is { } stopTimeout)
             {
                 config.StopTimeoutSeconds = stopTimeout;
+                changed++;
+            }
+
+            if (args.GetValue("webhook-url") is { } webhookUrl)
+            {
+                if (WebhookSettings.ValidateUrl(webhookUrl) is { } webhookError)
+                    throw new UsageException($"--webhook-url 参数错误：{webhookError}。", args.Command);
+                config.WebhookUrl = webhookUrl.Trim();
+                changed++;
+            }
+            if (args.GetValue("webhook-events") is { } webhookEvents)
+            {
+                try
+                {
+                    config.WebhookEvents = WebhookEvents.Format(WebhookEvents.Parse(webhookEvents));
+                }
+                catch (ArgumentException ex)
+                {
+                    throw new UsageException($"--webhook-events 参数错误：{ex.Message}。", args.Command);
+                }
                 changed++;
             }
 

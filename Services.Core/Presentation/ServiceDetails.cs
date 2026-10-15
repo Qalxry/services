@@ -45,6 +45,7 @@ namespace Services.Core.Presentation
                 new("失败自动重启", ServiceText.RestartPolicy(service.AutoRestart, service.RestartDelaySeconds,
                     service.MaxRestarts, service.RestartResetMinutes, service.RestartBackoff)),
                 new("停止方式", ServiceText.StopPolicy(service.StopMode, service.StopCommand, service.StopTimeoutSeconds)),
+                new("失败通知", ServiceText.Webhook(service.WebhookUrl, service.WebhookEvents, service.SecretsReadable, showSecrets), true),
                 new("健康检查", ServiceText.HealthCheck(service.HealthCheckType, service.HealthCheckTarget, service.HealthCheckIntervalSeconds,
                     service.HealthCheckTimeoutSeconds, service.HealthCheckFailureThreshold, service.HealthCheckStartPeriodSeconds)),
                 new("资源限制", ServiceText.ResourceLimits(service.MemoryLimitMB, service.ProcessMemoryLimitMB,

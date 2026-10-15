@@ -45,6 +45,10 @@ namespace ServicesApp
             {
                 error = dependenciesError;
             }
+            else if (Services.Core.Notifications.WebhookSettings.ValidateUrl(WebhookUrl) is { } webhookError)
+            {
+                error = webhookError + "。";
+            }
             else if (Services.Core.Health.HealthCheckSpec.Validate(SelectedHealthType, _healthTargetBox.Text) is { } healthError)
             {
                 error = healthError + "。";
@@ -121,6 +125,20 @@ namespace ServicesApp
             }
         }
 
+        /// <summary>
+        /// 服务级 Webhook：仍为遮蔽显示的原地址时沿用原值
+        /// </summary>
+        private string WebhookUrl
+        {
+            get
+            {
+                var text = _webhookUrlBox.Text.Trim();
+                return _existing?.WebhookUrl is { Length: > 0 } saved && text == Services.Core.Notifications.WebhookSettings.Mask(saved)
+                    ? saved
+                    : text;
+            }
+        }
+
         public ServiceConfig ToConfig()
         {
             TryParseEnvironment(out var environment, out _);
@@ -142,6 +160,8 @@ namespace ServicesApp
                 StopMode = SelectedStopMode,
                 StopCommand = _stopCommandBox.Text.Trim(),
                 StopTimeoutSeconds = ReadNumber(_stopTimeoutBox, StopPolicyDefaults.TimeoutSeconds),
+                WebhookUrl = WebhookUrl,
+                WebhookEvents = Services.Core.Notifications.WebhookEvents.Format(_webhookEvents.Selected),
                 HealthCheckType = SelectedHealthType,
                 HealthCheckTarget = SelectedHealthType == HealthCheckType.None ? "" : _healthTargetBox.Text.Trim(),
                 HealthCheckIntervalSeconds = ReadNumber(_healthIntervalBox, HealthCheckDefaults.IntervalSeconds),

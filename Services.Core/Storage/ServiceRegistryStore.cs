@@ -106,6 +106,7 @@ namespace Services.Core.Storage
             var startupType = serviceKey.GetValue(ScmValueNames.Start) is int start && Enum.IsDefined(typeof(ServiceStartupType), start)
                 ? (ServiceStartupType)start : ServiceStartupType.Auto;
             var accountName = serviceKey.GetValue(ScmValueNames.ObjectName) as string;
+            var webhook = NotificationStore.ReadService(serviceId);
 
             // 敏感变量：名称公开记录；值只有有权读取受保护子键时才能取得（以名称列表为准，丢弃多余的值）
             var names = (p.GetValue(ParameterNames.SecretEnvironmentNames) as string[] ?? Array.Empty<string>())
@@ -149,7 +150,9 @@ namespace Services.Core.Storage
                 AccountName = string.IsNullOrWhiteSpace(accountName) ? ServiceAccounts.LocalSystemName : accountName,
                 Environment = EnvironmentVariables.ParseLenient(p.GetValue(ParameterNames.Environment) as string[]),
                 SecretEnvironment = secrets ?? names.ToDictionary(name => name, _ => "", StringComparer.OrdinalIgnoreCase),
-                SecretsReadable = secrets != null,
+                SecretsReadable = secrets != null && !NotificationStore.IsServiceUnreadable(serviceId),
+                WebhookUrl = webhook?.Url,
+                WebhookEvents = webhook == null ? null : Notifications.WebhookEvents.Format(webhook.Events),
                 Dependencies = ServiceDependencies.ParseRegistry(serviceKey.GetValue(ScmValueNames.DependOnService) as string[]),
                 CreatedAt = DateTime.TryParse(p.GetValue(ParameterNames.CreatedAt) as string, out var createdAt) ? createdAt : DateTime.Now,
                 UpdatedAt = DateTime.Now,

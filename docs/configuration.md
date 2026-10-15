@@ -82,6 +82,16 @@ MSI 安装 / 升级后会自动执行）时，模板被复制到 `wrapper\<版�
 服务运行账户读取（其余用户无法读取；服务键本身默认对所有已认证用户可读）。
 修改服务时内容与权限会一并重写，运行账户变化时权限随之更新。
 
+### 失败通知：`...\Parameters\Notifications` 与 `HKLM\SOFTWARE\WindowsServiceManager\Notifications`
+
+| 值 | 类型 | 含义 |
+|---|---|---|
+| `WebhookUrl` | REG_SZ | Webhook 地址 |
+| `WebhookEvents` | REG_SZ | 订阅的事件，逗号分隔：`failed`、`unhealthy`、`restarting`（默认前两个） |
+
+服务级设置（`Parameters\Notifications`）优先于全局设置。Webhook 地址常含令牌：服务级子键的权限同 `Secrets`，
+全局子键只允许 SYSTEM / Administrators 完全控制、所有服务进程（`SERVICE` 组）读取。
+
 ### 全局设置：`HKLM\SOFTWARE\WindowsServiceManager`
 
 | 值 | 类型 | 含义 | 默认 |
@@ -127,6 +137,7 @@ MSI 安装 / 升级后会自动执行）时，模板被复制到 `wrapper\<版�
       "autoRestart": true,
       "restartPolicy": { "delaySeconds": 5, "maxRestarts": 5, "resetMinutes": 10, "backoff": true },
       "stopPolicy": { "mode": "command", "command": "{exe} -s quit", "timeoutSeconds": 30 },
+      "webhook": { "url": null, "events": [ "failed", "unhealthy" ] },  // url 为 null：沿用已保存的地址
       "healthCheck": { "type": "http", "target": "http://127.0.0.1:8080/health", "intervalSeconds": 30,
                        "timeoutSeconds": 5, "failureThreshold": 3, "startPeriodSeconds": 30 },
       "resourceLimits": { "memoryMB": 512, "processMemoryMB": 0, "cpuPercent": 50, "maxProcesses": 0 }

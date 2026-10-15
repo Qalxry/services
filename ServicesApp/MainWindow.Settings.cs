@@ -7,6 +7,8 @@ using Services.Core.Application;
 using Services.Core.Helpers;
 using Services.Core.Services;
 using Services.Core.Models;
+using Services.Core.Storage;
+using Services.Core.Notifications;
 using Services.Core.Presentation;
 using System.Collections.ObjectModel;
 using System;
@@ -88,13 +90,55 @@ namespace ServicesApp
             stack.Children.Add(maxSizeBox);
             stack.Children.Add(new TextBlock { Text = "修改后立即生效，过期日志会自动清理；0 表示不限制总大小，超出上限时从最旧的日志开始删除。", FontSize = 12, Opacity = 0.6, TextWrapping = TextWrapping.Wrap });
 
-            dialog.Content = stack;
+            // 全局失败通知（Webhook）
+            var webhook = NotificationStore.ReadGlobal();
+            var webhookBox = new TextBox
+            {
+                Header = "Webhook 地址",
+                PlaceholderText = "https://example.com/hooks/...",
+                Text = webhook?.Url ?? "",
+                Description = "留空表示不发送；服务也可在编辑时单独设置（优先于此处）"
+            };
+            var webhookEvents = new WebhookEventChecks(webhook?.Events ?? WebhookEvents.Default);
+            var testButton = new Button { Content = "发送测试", Margin = new Thickness(0, 4, 0, 0) };
+            var testResult = new TextBlock { FontSize = 12, Opacity = 0.7, TextWrapping = TextWrapping.Wrap };
+            testButton.Click += async (s, args) =>
+            {
+                var url = webhookBox.Text.Trim();
+                if (string.IsNullOrEmpty(url) || WebhookSettings.ValidateUrl(url) is { } invalid)
+                {
+                    testResult.Text = "请先填写有效的 Webhook 地址。";
+                    return;
+                }
+                testButton.IsEnabled = false;
+                testResult.Text = "正在发送...";
+                var error = await WebhookNotifier.SendAsync(url,
+                    WebhookPayload.Create(WebhookEvents.Test, "", "", "ServicesApp webhook test", DateTimeOffset.Now, Environment.MachineName),
+                    TimeSpan.FromSeconds(20));
+                testResult.Text = error == null ? "测试事件已发送。" : $"发送失败：{error}";
+                testButton.IsEnabled = true;
+            };
+            stack.Children.Add(new TextBlock { Text = "失败通知（Webhook）", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Margin = new Thickness(0, 10, 0, 0) });
+            stack.Children.Add(webhookBox);
+            stack.Children.Add(webhookEvents.View);
+            stack.Children.Add(testButton);
+            stack.Children.Add(testResult);
+
+            dialog.Content = new ScrollViewer { Content = stack, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
 
             var result = await dialog.ShowAsync();
             if (result == ContentDialogResult.Primary)
             {
                 try
                 {
+                    var webhookUrl = webhookBox.Text.Trim();
+                    if (WebhookSettings.ValidateUrl(webhookUrl) is { } webhookError)
+                    {
+                        await ShowDialog("错误", webhookError + "。");
+                        return;
+                    }
+                    NotificationStore.WriteGlobal(new WebhookSettings(webhookUrl, webhookEvents.Selected));
+
                     int days = (int)retentionBox.Value;
                     int maxSizeMB = double.IsNaN(maxSizeBox.Value) ? LogManager.GetGlobalMaxTotalSizeMB() : (int)maxSizeBox.Value;
                     LogManager.SetGlobalRetentionDays(days);

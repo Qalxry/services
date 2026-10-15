@@ -5,6 +5,7 @@ using System.ServiceProcess;
 using System.Threading;
 using System.Threading.Tasks;
 using Services.Core.Helpers;
+using Services.Core.Notifications;
 using Services.Core.Scm;
 using Services.Core.Wrapper;
 
@@ -37,6 +38,8 @@ namespace Services.Core.Services
         private CancellationTokenSource? _healthCts;
         // 因健康检查失败而被结束的进程代数与原因
         private (int Generation, string Reason)? _healthKill;
+        // 目标程序最近一次的退出码（用于通知）
+        private int? _lastExitCode;
         private AsyncLogger? _logger;
 
         // 系统关机时 SCM 只给服务很短的时间（默认约 5 秒），优雅停止的等待上限
@@ -208,6 +211,7 @@ namespace Services.Core.Services
                 // 停止期间的退出同样记录（如 Ctrl+C 后的退出码），但不再据此决定重启或停止
                 if (generation == _machine.Generation)
                 {
+                    _lastExitCode = exitCode;
                     LogSystem($"Process exited (code: {exitCode})");
                     _runtime?.ProcessExited(exitCode, DateTime.Now);
                     _healthCts?.Cancel();
@@ -259,6 +263,8 @@ namespace Services.Core.Services
                 var limit = machine.MaxRestarts > 0 ? machine.MaxRestarts.ToString() : "unlimited";
                 LogSystem($"{decision.Reason} {decision.Attempt}/{limit} in {(long)decision.Delay.TotalMilliseconds}ms");
             }
+            Notify(WebhookEvents.Restarting, $"{decision.Reason} {decision.Attempt} scheduled in {(long)decision.Delay.TotalSeconds}s",
+                waitForDelivery: false, exitCode: _lastExitCode, restartCount: decision.Attempt);
 
             Task.Delay(decision.Delay, _stopCts.Token).ContinueWith(t =>
             {
@@ -367,6 +373,7 @@ namespace Services.Core.Services
         private void RecordFailure(int exitCode, string reason)
         {
             LogSystem($"Service failed: {reason} (exit code {exitCode})");
+            Notify(WebhookEvents.Failed, reason, waitForDelivery: true, exitCode: _lastExitCode, restartCount: _machine?.RestartCount);
             try
             {
                 EventLog.WriteEntry($"{_serviceId}: {reason}", EventLogEntryType.Error);

@@ -25,6 +25,8 @@ namespace Services.Core.Configuration
                     var missing = config.SecretEnvironment.FirstOrDefault(p => p.Value == ConfigFileMapper.KeepExistingSecret).Key;
                     if (missing != null)
                         throw new ConfigFileException($"服务 '{config.Name}' 尚不存在，secretEnvironment.{missing} 必须提供值。");
+                    if (config.WebhookUrl == ConfigFileMapper.KeepExistingSecret)
+                        throw new ConfigFileException($"服务 '{config.Name}' 尚不存在，webhook.url 必须提供值。");
                     RejectUserAccount(config, "创建");
                     plan.Add(new ApplyPlanItem("create", config.Name, null, new List<string>(), config));
                     continue;
@@ -32,6 +34,12 @@ namespace Services.Core.Configuration
 
                 var service = matches[0];
                 config.SecretEnvironment = ResolveSecrets(config, service);
+                if (config.WebhookUrl == ConfigFileMapper.KeepExistingSecret)
+                {
+                    config.WebhookUrl = string.IsNullOrWhiteSpace(service.WebhookUrl) && service.SecretsReadable
+                        ? throw new ConfigFileException($"服务 '{config.Name}' 没有已保存的 Webhook 地址，webhook.url 必须提供值。")
+                        : service.WebhookUrl;
+                }
                 var changes = ConfigFileMapper.Diff(ServiceConfig.FromService(service), config);
                 if (changes.Contains("account")) RejectUserAccount(config, "切换到");
                 if (config.AccountType == ServiceAccountType.User && service.AccountType == ServiceAccountType.User)

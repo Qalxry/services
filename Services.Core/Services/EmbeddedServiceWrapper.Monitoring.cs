@@ -5,13 +5,14 @@ using System.ServiceProcess;
 using System.Threading;
 using System.Threading.Tasks;
 using Services.Core.Helpers;
+using Services.Core.Notifications;
 using Services.Core.Scm;
 using Services.Core.Wrapper;
 
 namespace Services.Core.Services
 {
     /// <summary>
-    /// 包装器：目标进程的资源限制与健康检查
+    /// 包装器：目标进程的资源限制、健康检查与失败通知
     /// </summary>
     public partial class EmbeddedServiceWrapper
     {
@@ -70,6 +71,7 @@ namespace Services.Core.Services
             }
 
             LogSystem($"Process is unhealthy after {_settings!.Health.FailureThreshold} consecutive failed checks, killing process tree");
+            Notify(WebhookEvents.Unhealthy, $"Health check failed: {reason}", waitForDelivery: false);
             try
             {
                 process.Kill(entireProcessTree: true);
@@ -77,6 +79,35 @@ namespace Services.Core.Services
             catch (Exception ex)
             {
                 LogSystem($"Failed to kill unhealthy process: {ex.Message}");
+            }
+        }
+
+        // 以失败状态停止前等待通知送达的上限（之后进程可能退出）；其余事件在后台发送
+        private static readonly TimeSpan BlockingNotifyTimeout = TimeSpan.FromSeconds(10);
+        private static readonly TimeSpan BackgroundNotifyTimeout = TimeSpan.FromSeconds(30);
+
+        /// <summary>
+        /// 按设置发送 Webhook 通知。结果写入日志；任何失败都不影响服务。
+        /// </summary>
+        /// <param name="waitForDelivery">等待发送完成（服务即将停止、进程可能随之退出时）</param>
+        private void Notify(string eventName, string message, bool waitForDelivery, int? exitCode = null, int? restartCount = null)
+        {
+            var settings = _settings;
+            if (settings == null || !settings.Webhook.Enabled || !WebhookEvents.IsSubscribed(settings.Webhook.Events, eventName)) return;
+
+            var payload = WebhookPayload.Create(eventName, _serviceId, settings.DisplayName, message,
+                DateTimeOffset.Now, Environment.MachineName, exitCode, restartCount);
+            var send = WebhookNotifier.SendAsync(settings.Webhook.Url, payload, waitForDelivery ? BlockingNotifyTimeout : BackgroundNotifyTimeout)
+                .ContinueWith(t =>
+                {
+                    var error = t.IsCompletedSuccessfully ? t.Result : t.Exception?.GetBaseException().Message;
+                    LogSystem(error == null ? $"Webhook notified: {eventName}" : $"Webhook notification failed ({eventName}): {error}");
+                }, TaskScheduler.Default);
+
+            if (waitForDelivery)
+            {
+                try { send.Wait(BlockingNotifyTimeout + TimeSpan.FromSeconds(1)); }
+                catch { }
             }
         }
     }

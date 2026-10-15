@@ -96,6 +96,16 @@ namespace Services.Core.Presentation
 
         public static string Time(DateTime time) => time.ToString(TimeFormat);
 
+        /// <summary>服务级失败通知；未设置时说明沿用全局设置</summary>
+        public static string Webhook(string? url, string? events, bool readable, bool showValues)
+        {
+            if (!readable) return "（无权读取）";
+            if (string.IsNullOrWhiteSpace(url)) return "沿用全局设置";
+            var shown = showValues ? url : Notifications.WebhookSettings.Mask(url);
+            var subscribed = Notifications.WebhookEvents.Format(Notifications.WebhookEvents.Parse(events)).Replace(",", "、");
+            return $"{shown}（事件：{subscribed}）";
+        }
+
         public static string HealthCheck(HealthCheckType type, string? target, int intervalSeconds, int timeoutSeconds,
             int failureThreshold, int startPeriodSeconds)
         {

@@ -92,7 +92,7 @@ namespace Services.Tests
         public void EveryCommandHelpStartsWithToolAndSummary()
         {
             var commands = Commands();
-            Assert.Equal(15, commands.Count);
+            Assert.Equal(16, commands.Count);
             Assert.All(commands, c => Assert.False(string.IsNullOrWhiteSpace(c.Summary)));
             Assert.Equal(commands.Count, commands.Select(c => c.Name).Distinct().Count());
         }

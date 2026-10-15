@@ -147,8 +147,13 @@ namespace Services.Core.Models
         /// </summary>
         public IReadOnlyDictionary<string, string> SecretEnvironment { get; set; } = EnvironmentVariables.Clone(null);
 
-        /// <summary>敏感环境变量的值是否已读取（无权读取时为 false）</summary>
+        /// <summary>受保护的配置（敏感环境变量、服务级 Webhook）是否已读取（无权读取时为 false）</summary>
         public bool SecretsReadable { get; set; } = true;
+
+        /// <summary>服务级失败通知 Webhook 地址；为空表示沿用全局设置</summary>
+        public string? WebhookUrl { get; set; }
+        /// <summary>服务级 Webhook 订阅的事件（逗号分隔）；为空表示默认事件</summary>
+        public string? WebhookEvents { get; set; }
 
         /// <summary>本服务启动前需先启动的服务名（Windows 服务名，可以是任意服务）；名称不区分大小写</summary>
         public IReadOnlyList<string> Dependencies { get; set; } = ServiceDependencies.Clone(null);
@@ -193,6 +198,8 @@ namespace Services.Core.Models
             Environment = EnvironmentVariables.Clone(other.Environment);
             SecretEnvironment = EnvironmentVariables.Clone(other.SecretEnvironment);
             SecretsReadable = other.SecretsReadable;
+            WebhookUrl = other.WebhookUrl;
+            WebhookEvents = other.WebhookEvents;
             Dependencies = ServiceDependencies.Clone(other.Dependencies);
             CreatedAt = other.CreatedAt;
             UpdatedAt = other.UpdatedAt;
@@ -246,6 +253,10 @@ namespace Services.Core.Models
         public IReadOnlyDictionary<string, string> Environment { get; set; } = EnvironmentVariables.Clone(null);
         /// <summary>敏感环境变量（受保护存储，界面遮蔽）；变量名不能与 Environment 重复</summary>
         public IReadOnlyDictionary<string, string> SecretEnvironment { get; set; } = EnvironmentVariables.Clone(null);
+        /// <summary>服务级 Webhook 地址（受保护存储）；为空表示沿用全局设置</summary>
+        public string? WebhookUrl { get; set; }
+        /// <summary>服务级 Webhook 订阅的事件（逗号分隔）；为空表示默认事件</summary>
+        public string? WebhookEvents { get; set; }
         public ServiceStartupType StartupType { get; set; } = ServiceStartupType.Auto;
         /// <summary>延迟自动启动；仅在启动类型为 Auto 时有效，其他类型保存时按 false 处理</summary>
         public bool DelayedAutoStart { get; set; }
@@ -286,6 +297,8 @@ namespace Services.Core.Models
                 AccountName = service.AccountName,
                 Environment = EnvironmentVariables.Clone(service.Environment),
                 SecretEnvironment = EnvironmentVariables.Clone(service.SecretEnvironment),
+                WebhookUrl = service.WebhookUrl,
+                WebhookEvents = service.WebhookEvents,
                 StartupType = service.StartupType,
                 DelayedAutoStart = service.DelayedAutoStart,
                 Dependencies = ServiceDependencies.Clone(service.Dependencies)

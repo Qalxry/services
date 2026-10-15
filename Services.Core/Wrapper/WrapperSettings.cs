@@ -4,6 +4,7 @@ using System.IO;
 using Microsoft.Win32;
 using Services.Core.Helpers;
 using Services.Core.Models;
+using Services.Core.Notifications;
 using Services.Core.Storage;
 
 namespace Services.Core.Wrapper
@@ -47,6 +48,10 @@ namespace Services.Core.Wrapper
         public StopPolicySettings Stop { get; init; } = StopPolicySettings.Default;
         public ResourceLimits Limits { get; init; } = ResourceLimits.None;
         public HealthCheckSettings Health { get; init; } = HealthCheckSettings.None;
+        /// <summary>服务名称（显示名称），用于通知</summary>
+        public string DisplayName { get; init; } = "";
+        /// <summary>生效的 Webhook（服务级优先，其次全局）</summary>
+        public WebhookSettings Webhook { get; init; } = WebhookSettings.None;
 
         public static WrapperSettings Load(string serviceId)
         {
@@ -80,7 +85,10 @@ namespace Services.Core.Wrapper
                     ReadNonNegative(key, ParameterNames.ProcessMemoryLimitMB),
                     Math.Min(ReadNonNegative(key, ParameterNames.CpuLimitPercent), ResourceLimitRanges.MaxCpuPercent),
                     ReadNonNegative(key, ParameterNames.MaxProcesses)), ResourceLimits.None),
-                Health = Try(() => LoadHealthCheck(key), HealthCheckSettings.None)
+                Health = Try(() => LoadHealthCheck(key), HealthCheckSettings.None),
+                DisplayName = key.GetValue(ParameterNames.DisplayName) as string ?? serviceId,
+                Webhook = Try(() => WebhookSettings.Resolve(NotificationStore.ReadService(serviceId), NotificationStore.ReadGlobal()),
+                    WebhookSettings.None)
             };
         }
 

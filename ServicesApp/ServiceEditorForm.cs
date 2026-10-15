@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Services.Core.Helpers;
 using Services.Core.Models;
+using Services.Core.Notifications;
 using Services.Core.Presentation;
 using System;
 using System.Collections.Generic;
@@ -32,6 +33,8 @@ namespace ServicesApp
         private readonly ComboBox _stopModeBox;
         private readonly NumberBox _stopTimeoutBox;
         private readonly TextBox _stopCommandBox;
+        private readonly TextBox _webhookUrlBox;
+        private readonly WebhookEventChecks _webhookEvents;
         private readonly ComboBox _healthTypeBox;
         private readonly TextBox _healthTargetBox;
         private readonly NumberBox _healthIntervalBox;
@@ -182,6 +185,15 @@ namespace ServicesApp
             };
             _stopModeBox.SelectionChanged += (s, e) => UpdateStopControls();
 
+            // Webhook (service level, overrides global)
+            _webhookUrlBox = new TextBox
+            {
+                Header = "失败通知 Webhook (可选)",
+                PlaceholderText = "留空则沿用全局设置",
+                Description = "优先于设置中的全局 Webhook；地址只有管理员与运行账户可读，界面中遮蔽显示，保持不变即沿用原值"
+            };
+            _webhookEvents = new WebhookEventChecks(WebhookEvents.Parse(existing?.WebhookEvents));
+
             // Health check
             _healthTypeBox = new ComboBox { Header = "健康检查", HorizontalAlignment = HorizontalAlignment.Stretch };
             _healthTypeBox.Items.Add("不检查");
@@ -268,6 +280,7 @@ namespace ServicesApp
             form.Add(_restartPolicyPanel);
             form.Add(_stopModeBox, _stopTimeoutBox);
             form.Add(_stopCommandBox);
+            form.Add(_webhookUrlBox, _webhookEvents.View);
             form.Add(_healthTypeBox, _healthTargetBox);
             form.Add(_healthIntervalBox, _healthTimeoutBox);
             form.Add(_healthRetriesBox, _healthStartPeriodBox);
@@ -297,6 +310,7 @@ namespace ServicesApp
                 _stopModeBox.SelectedIndex = (int)existing.StopMode;
                 _stopTimeoutBox.Value = existing.StopTimeoutSeconds;
                 _stopCommandBox.Text = existing.StopCommand ?? "";
+                _webhookUrlBox.Text = string.IsNullOrWhiteSpace(existing.WebhookUrl) ? "" : WebhookSettings.Mask(existing.WebhookUrl);
                 _healthTypeBox.SelectedIndex = (int)existing.HealthCheckType;
                 _healthTargetBox.Text = existing.HealthCheckTarget ?? "";
                 _healthIntervalBox.Value = existing.HealthCheckIntervalSeconds;

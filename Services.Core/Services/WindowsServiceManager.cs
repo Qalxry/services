@@ -200,8 +200,7 @@ namespace Services.Core.Services
             if (delayedAutoStart)
                 Step("delayed auto start", () => ScmClient.SetDelayedAutoStart(serviceId, true));
             // 账户确定后再写入敏感变量，ACL 中的运行账户（如虚拟账户）此时才能解析
-            Step("secret environment", () => SecretStore.Write(serviceId, config.SecretEnvironment,
-                ServiceAccounts.ToObjectName(config.AccountType, serviceId, config.AccountName)));
+            Step("secret environment", () => WriteProtectedSettings(serviceId, config));
 
             EnsureEventSource(serviceId);
             ScmClient.SetDescription(serviceId, BuildServiceDescription(config));
@@ -249,8 +248,7 @@ namespace Services.Core.Services
             if (applyAccount)
                 ServiceAccountSetup.Apply(serviceId, config, password);
             // 每次都重写：内容可能变化，运行账户变化时 ACL 也要随之更新
-            SecretStore.Write(serviceId, config.SecretEnvironment,
-                ServiceAccounts.ToObjectName(config.AccountType, serviceId, config.AccountName));
+            WriteProtectedSettings(serviceId, config);
             EnsureEventSource(serviceId);
 
             await LoadServicesAsync();
@@ -291,6 +289,17 @@ namespace Services.Core.Services
             new ServiceStateStore().Delete(serviceId);
         }
 
+        /// <summary>
+        /// 写入只有 SYSTEM、管理员与运行账户可读的配置：敏感环境变量与服务级 Webhook
+        /// </summary>
+        private static void WriteProtectedSettings(string serviceId, ServiceConfig config)
+        {
+            var account = ServiceAccounts.ToObjectName(config.AccountType, serviceId, config.AccountName);
+            SecretStore.Write(serviceId, config.SecretEnvironment, account);
+            NotificationStore.WriteService(serviceId, new Notifications.WebhookSettings(config.WebhookUrl?.Trim() ?? "",
+                Notifications.WebhookEvents.Parse(config.WebhookEvents)), account);
+        }
+
         private static void ValidateConfig(ServiceConfig config)
         {
             if (!File.Exists(config.ExePath))
@@ -307,6 +316,10 @@ namespace Services.Core.Services
                 config.CpuLimitPercent is < 0 or > ResourceLimitRanges.MaxCpuPercent ||
                 config.MaxProcesses is < 0 or > ResourceLimitRanges.MaxProcesses)
                 throw new ArgumentException("Resource limit is out of range.");
+
+            if (Notifications.WebhookSettings.ValidateUrl(config.WebhookUrl) is { } webhookError)
+                throw new ArgumentException(webhookError);
+            Notifications.WebhookEvents.Parse(config.WebhookEvents);
 
             if (Health.HealthCheckSpec.Validate(config.HealthCheckType, config.HealthCheckTarget) is { } healthError)
                 throw new ArgumentException(healthError);
