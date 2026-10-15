@@ -61,6 +61,12 @@ MSI 安装 / 升级后会自动执行）时，模板被复制到 `wrapper\<版�
 | `StopMode` | REG_DWORD | 0 结束进程树、1 发送 Ctrl+C、2 执行停止命令 | 0 |
 | `StopCommand` | REG_SZ | 停止命令，支持 `{exe}` `{workdir}` `{pid}` | 空 |
 | `StopTimeoutSeconds` | REG_DWORD | 优雅停止的最长等待（1–3600 秒） | 30 |
+| `HealthCheckType` | REG_DWORD | 健康检查：0 不检查、1 HTTP、2 TCP、3 命令 | 0 |
+| `HealthCheckTarget` | REG_SZ | URL / host:port / 命令 | 空 |
+| `HealthCheckIntervalSeconds` | REG_DWORD | 检查间隔（1–3600 秒） | 30 |
+| `HealthCheckTimeoutSeconds` | REG_DWORD | 单次检查超时（1–300 秒） | 5 |
+| `HealthCheckFailureThreshold` | REG_DWORD | 连续失败多少次视为不健康（1–100） | 3 |
+| `HealthCheckStartPeriodSeconds` | REG_DWORD | 启动宽限期（0–3600 秒） | 30 |
 | `MemoryLimitMB` | REG_DWORD | 目标程序进程树的内存上限（MB），0 不限 | 0 |
 | `ProcessMemoryLimitMB` | REG_DWORD | 单个进程的内存上限（MB），0 不限 | 0 |
 | `CpuLimitPercent` | REG_DWORD | CPU 占用硬上限（全部 CPU 的百分比），0 不限 | 0 |
@@ -121,6 +127,8 @@ MSI 安装 / 升级后会自动执行）时，模板被复制到 `wrapper\<版�
       "autoRestart": true,
       "restartPolicy": { "delaySeconds": 5, "maxRestarts": 5, "resetMinutes": 10, "backoff": true },
       "stopPolicy": { "mode": "command", "command": "{exe} -s quit", "timeoutSeconds": 30 },
+      "healthCheck": { "type": "http", "target": "http://127.0.0.1:8080/health", "intervalSeconds": 30,
+                       "timeoutSeconds": 5, "failureThreshold": 3, "startPeriodSeconds": 30 },
       "resourceLimits": { "memoryMB": 512, "processMemoryMB": 0, "cpuPercent": 50, "maxProcesses": 0 }
     }
   ]

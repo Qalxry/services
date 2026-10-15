@@ -39,6 +39,12 @@ namespace Services.Core.Storage
             key.SetValue(ParameterNames.StopMode, (int)config.StopMode, RegistryValueKind.DWord);
             key.SetValue(ParameterNames.StopCommand, config.StopCommand ?? "");
             key.SetValue(ParameterNames.StopTimeoutSeconds, config.StopTimeoutSeconds, RegistryValueKind.DWord);
+            key.SetValue(ParameterNames.HealthCheckType, (int)config.HealthCheckType, RegistryValueKind.DWord);
+            key.SetValue(ParameterNames.HealthCheckTarget, config.HealthCheckTarget ?? "");
+            key.SetValue(ParameterNames.HealthCheckIntervalSeconds, config.HealthCheckIntervalSeconds, RegistryValueKind.DWord);
+            key.SetValue(ParameterNames.HealthCheckTimeoutSeconds, config.HealthCheckTimeoutSeconds, RegistryValueKind.DWord);
+            key.SetValue(ParameterNames.HealthCheckFailureThreshold, config.HealthCheckFailureThreshold, RegistryValueKind.DWord);
+            key.SetValue(ParameterNames.HealthCheckStartPeriodSeconds, config.HealthCheckStartPeriodSeconds, RegistryValueKind.DWord);
             key.SetValue(ParameterNames.MemoryLimitMB, config.MemoryLimitMB, RegistryValueKind.DWord);
             key.SetValue(ParameterNames.ProcessMemoryLimitMB, config.ProcessMemoryLimitMB, RegistryValueKind.DWord);
             key.SetValue(ParameterNames.CpuLimitPercent, config.CpuLimitPercent, RegistryValueKind.DWord);
@@ -128,6 +134,13 @@ namespace Services.Core.Storage
                     ? (ServiceStopMode)stopMode : ServiceStopMode.Kill,
                 StopCommand = p.GetValue(ParameterNames.StopCommand) as string,
                 StopTimeoutSeconds = ReadInt(p, ParameterNames.StopTimeoutSeconds, v => v > 0, StopPolicyDefaults.TimeoutSeconds),
+                HealthCheckType = p.GetValue(ParameterNames.HealthCheckType) is int healthType && Enum.IsDefined(typeof(HealthCheckType), healthType)
+                    ? (HealthCheckType)healthType : HealthCheckType.None,
+                HealthCheckTarget = p.GetValue(ParameterNames.HealthCheckTarget) as string,
+                HealthCheckIntervalSeconds = ReadInt(p, ParameterNames.HealthCheckIntervalSeconds, v => v > 0, HealthCheckDefaults.IntervalSeconds),
+                HealthCheckTimeoutSeconds = ReadInt(p, ParameterNames.HealthCheckTimeoutSeconds, v => v > 0, HealthCheckDefaults.TimeoutSeconds),
+                HealthCheckFailureThreshold = ReadInt(p, ParameterNames.HealthCheckFailureThreshold, v => v > 0, HealthCheckDefaults.FailureThreshold),
+                HealthCheckStartPeriodSeconds = ReadInt(p, ParameterNames.HealthCheckStartPeriodSeconds, v => v >= 0, HealthCheckDefaults.StartPeriodSeconds),
                 MemoryLimitMB = ReadInt(p, ParameterNames.MemoryLimitMB, v => v >= 0, 0),
                 ProcessMemoryLimitMB = ReadInt(p, ParameterNames.ProcessMemoryLimitMB, v => v >= 0, 0),
                 CpuLimitPercent = ReadInt(p, ParameterNames.CpuLimitPercent, v => v is >= 0 and <= ResourceLimitRanges.MaxCpuPercent, 0),

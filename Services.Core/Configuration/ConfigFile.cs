@@ -46,8 +46,22 @@ namespace Services.Core.Configuration
         public bool AutoRestart { get; set; }
         public RestartPolicyDefinition? RestartPolicy { get; set; }
         public StopPolicyDefinition? StopPolicy { get; set; }
+        /// <summary>健康检查；省略表示不检查</summary>
+        public HealthCheckDefinition? HealthCheck { get; set; }
         /// <summary>资源限制；省略或各项为 0 表示不限制</summary>
         public ResourceLimitsDefinition? ResourceLimits { get; set; }
+    }
+
+    public sealed class HealthCheckDefinition
+    {
+        /// <summary>http / tcp / command</summary>
+        public string Type { get; set; } = "http";
+        /// <summary>http 为 URL，tcp 为 host:port，command 为命令行</summary>
+        public string? Target { get; set; }
+        public int IntervalSeconds { get; set; } = HealthCheckDefaults.IntervalSeconds;
+        public int TimeoutSeconds { get; set; } = HealthCheckDefaults.TimeoutSeconds;
+        public int FailureThreshold { get; set; } = HealthCheckDefaults.FailureThreshold;
+        public int StartPeriodSeconds { get; set; } = HealthCheckDefaults.StartPeriodSeconds;
     }
 
     public sealed class ResourceLimitsDefinition
@@ -184,6 +198,17 @@ namespace Services.Core.Configuration
                     Command = string.IsNullOrWhiteSpace(service.StopCommand) ? null : service.StopCommand,
                     TimeoutSeconds = service.StopTimeoutSeconds
                 },
+                HealthCheck = service.HealthCheckType == HealthCheckType.None
+                    ? null
+                    : new HealthCheckDefinition
+                    {
+                        Type = Health.HealthCheckSpec.ToValue(service.HealthCheckType),
+                        Target = service.HealthCheckTarget,
+                        IntervalSeconds = service.HealthCheckIntervalSeconds,
+                        TimeoutSeconds = service.HealthCheckTimeoutSeconds,
+                        FailureThreshold = service.HealthCheckFailureThreshold,
+                        StartPeriodSeconds = service.HealthCheckStartPeriodSeconds
+                    },
                 ResourceLimits = service.MemoryLimitMB == 0 && service.ProcessMemoryLimitMB == 0 &&
                                  service.CpuLimitPercent == 0 && service.MaxProcesses == 0
                     ? null
@@ -210,6 +235,10 @@ namespace Services.Core.Configuration
             var restart = definition.RestartPolicy ?? new RestartPolicyDefinition();
             var stop = definition.StopPolicy ?? new StopPolicyDefinition();
             var limits = definition.ResourceLimits ?? new ResourceLimitsDefinition();
+            var health = definition.HealthCheck;
+            var healthType = HealthCheckType.None;
+            if (health != null && !Health.HealthCheckSpec.TryParseType(health.Type, out healthType))
+                throw new ConfigFileException($"{path}.healthCheck.type 只能是 http、tcp、command 或 none，实际为 '{health.Type}'。");
             var (startupType, delayed) = ParseStartup(definition.Startup, path);
             var (accountType, accountName) = ParseAccount(definition.Account);
 
@@ -239,6 +268,16 @@ namespace Services.Core.Configuration
                 StopMode = ParseStopMode(stop.Mode, path),
                 StopCommand = stop.Command?.Trim() ?? "",
                 StopTimeoutSeconds = CheckRange(stop.TimeoutSeconds, 1, StopPolicyDefaults.MaxTimeoutSeconds, $"{path}.stopPolicy.timeoutSeconds"),
+                HealthCheckType = healthType,
+                HealthCheckTarget = healthType == HealthCheckType.None ? "" : health!.Target?.Trim() ?? "",
+                HealthCheckIntervalSeconds = CheckRange(health?.IntervalSeconds ?? HealthCheckDefaults.IntervalSeconds, 1,
+                    HealthCheckDefaults.MaxIntervalSeconds, $"{path}.healthCheck.intervalSeconds"),
+                HealthCheckTimeoutSeconds = CheckRange(health?.TimeoutSeconds ?? HealthCheckDefaults.TimeoutSeconds, 1,
+                    HealthCheckDefaults.MaxTimeoutSeconds, $"{path}.healthCheck.timeoutSeconds"),
+                HealthCheckFailureThreshold = CheckRange(health?.FailureThreshold ?? HealthCheckDefaults.FailureThreshold, 1,
+                    HealthCheckDefaults.MaxFailureThreshold, $"{path}.healthCheck.failureThreshold"),
+                HealthCheckStartPeriodSeconds = CheckRange(health?.StartPeriodSeconds ?? HealthCheckDefaults.StartPeriodSeconds, 0,
+                    HealthCheckDefaults.MaxStartPeriodSeconds, $"{path}.healthCheck.startPeriodSeconds"),
                 MemoryLimitMB = CheckRange(limits.MemoryMB, 0, ResourceLimitRanges.MaxMemoryMB, $"{path}.resourceLimits.memoryMB"),
                 ProcessMemoryLimitMB = CheckRange(limits.ProcessMemoryMB, 0, ResourceLimitRanges.MaxMemoryMB, $"{path}.resourceLimits.processMemoryMB"),
                 CpuLimitPercent = CheckRange(limits.CpuPercent, 0, ResourceLimitRanges.MaxCpuPercent, $"{path}.resourceLimits.cpuPercent"),
@@ -247,6 +286,8 @@ namespace Services.Core.Configuration
 
             if (config.StopMode == ServiceStopMode.Command && string.IsNullOrWhiteSpace(config.StopCommand))
                 throw new ConfigFileException($"{path}.stopPolicy.command 不能为空（mode 为 command）。");
+            if (Health.HealthCheckSpec.Validate(config.HealthCheckType, config.HealthCheckTarget) is { } healthError)
+                throw new ConfigFileException($"{path}.healthCheck.target: {healthError}。");
             try
             {
                 EnvironmentVariables.Validate(config.Environment);
@@ -303,6 +344,13 @@ namespace Services.Core.Configuration
             Check("stopPolicy", current.StopMode == desired.StopMode &&
                 Normalize(current.StopCommand) == Normalize(desired.StopCommand) &&
                 current.StopTimeoutSeconds == desired.StopTimeoutSeconds);
+            Check("healthCheck", current.HealthCheckType == desired.HealthCheckType &&
+                (desired.HealthCheckType == HealthCheckType.None ||
+                 Normalize(current.HealthCheckTarget) == Normalize(desired.HealthCheckTarget) &&
+                 current.HealthCheckIntervalSeconds == desired.HealthCheckIntervalSeconds &&
+                 current.HealthCheckTimeoutSeconds == desired.HealthCheckTimeoutSeconds &&
+                 current.HealthCheckFailureThreshold == desired.HealthCheckFailureThreshold &&
+                 current.HealthCheckStartPeriodSeconds == desired.HealthCheckStartPeriodSeconds));
             Check("resourceLimits", current.MemoryLimitMB == desired.MemoryLimitMB &&
                 current.ProcessMemoryLimitMB == desired.ProcessMemoryLimitMB &&
                 current.CpuLimitPercent == desired.CpuLimitPercent &&

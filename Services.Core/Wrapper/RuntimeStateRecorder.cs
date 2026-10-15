@@ -84,6 +84,14 @@ namespace Services.Core.Wrapper
             s.TotalRestarts = total;
         });
 
+        public void Health(string? status, string? message, int failures, DateTime? checkedAt) => Update(s =>
+        {
+            s.HealthStatus = status;
+            s.HealthMessage = message;
+            s.HealthFailures = failures;
+            s.HealthCheckedAt = checkedAt;
+        });
+
         public void Failed(string reason) => Update(s =>
         {
             s.LastFailureReason = reason;

@@ -56,6 +56,12 @@ servicesctl logs MyApp --stream stderr --since 10m
 - **停止很慢**：优雅停止最多等待 `--stop-timeout` 秒（默认 30），超时后结束进程树。
 - **系统关机时**：最多等待 4 秒。
 
+## 健康检查
+
+- 日志中的 `Health check failed (n/N): ...` 说明每次失败的原因（HTTP 状态码、连接错误、命令退出码、超时）。
+- 程序启动较慢时被误判为不健康：增大 `--health-start-period`（宽限期内的失败不计数，一次成功即结束宽限）。
+- `servicesctl get` 的“健康状态”与 `runtime.healthStatus` 显示最近一次检查结果。
+
 ## 升级与包装器
 
 - 服务运行的是 `%ProgramData%\ServicesApp\wrapper\` 中的副本，升级安装目录不需要停止服务。

@@ -12,7 +12,7 @@ namespace ServicesApp
     /// <summary>
     /// 添加/编辑服务共用的表单
     /// </summary>
-    public sealed class ServiceEditorForm
+    public sealed partial class ServiceEditorForm
     {
         private readonly IntPtr _ownerHwnd;
         private readonly TextBox _nameBox;
@@ -32,6 +32,12 @@ namespace ServicesApp
         private readonly ComboBox _stopModeBox;
         private readonly NumberBox _stopTimeoutBox;
         private readonly TextBox _stopCommandBox;
+        private readonly ComboBox _healthTypeBox;
+        private readonly TextBox _healthTargetBox;
+        private readonly NumberBox _healthIntervalBox;
+        private readonly NumberBox _healthTimeoutBox;
+        private readonly NumberBox _healthRetriesBox;
+        private readonly NumberBox _healthStartPeriodBox;
         private readonly NumberBox _memoryLimitBox;
         private readonly NumberBox _processMemoryLimitBox;
         private readonly NumberBox _cpuLimitBox;
@@ -176,6 +182,26 @@ namespace ServicesApp
             };
             _stopModeBox.SelectionChanged += (s, e) => UpdateStopControls();
 
+            // Health check
+            _healthTypeBox = new ComboBox { Header = "健康检查", HorizontalAlignment = HorizontalAlignment.Stretch };
+            _healthTypeBox.Items.Add("不检查");
+            _healthTypeBox.Items.Add("HTTP（2xx / 3xx 为健康）");
+            _healthTypeBox.Items.Add("TCP 端口可连接");
+            _healthTypeBox.Items.Add("命令（退出码 0 为健康）");
+            _healthTargetBox = new TextBox
+            {
+                Header = "检查目标",
+                PlaceholderText = "http://127.0.0.1:8080/health",
+                Description = "HTTP 为 URL；TCP 为 host:port；命令可用 {exe} {workdir} {pid}"
+            };
+            _healthIntervalBox = CreateNumberBox("检查间隔 (秒)", 1, HealthCheckDefaults.MaxIntervalSeconds, HealthCheckDefaults.IntervalSeconds);
+            _healthTimeoutBox = CreateNumberBox("检查超时 (秒)", 1, HealthCheckDefaults.MaxTimeoutSeconds, HealthCheckDefaults.TimeoutSeconds);
+            _healthRetriesBox = CreateNumberBox("连续失败次数", 1, HealthCheckDefaults.MaxFailureThreshold, HealthCheckDefaults.FailureThreshold);
+            _healthRetriesBox.Description = "达到后结束程序并按重启策略处理";
+            _healthStartPeriodBox = CreateNumberBox("启动宽限 (秒)", 0, HealthCheckDefaults.MaxStartPeriodSeconds, HealthCheckDefaults.StartPeriodSeconds);
+            _healthStartPeriodBox.Description = "程序启动后这段时间内的失败不计数";
+            _healthTypeBox.SelectionChanged += (s, e) => UpdateHealthControls();
+
             // Resource limits (0 = unlimited)
             _memoryLimitBox = CreateNumberBox("内存上限 (MB)", 0, ResourceLimitRanges.MaxMemoryMB, 0);
             _memoryLimitBox.Description = "目标程序及其子进程合计；0 表示不限制";
@@ -242,6 +268,9 @@ namespace ServicesApp
             form.Add(_restartPolicyPanel);
             form.Add(_stopModeBox, _stopTimeoutBox);
             form.Add(_stopCommandBox);
+            form.Add(_healthTypeBox, _healthTargetBox);
+            form.Add(_healthIntervalBox, _healthTimeoutBox);
+            form.Add(_healthRetriesBox, _healthStartPeriodBox);
             form.Add(_memoryLimitBox, _processMemoryLimitBox);
             form.Add(_cpuLimitBox, _maxProcessesBox);
             form.Add(_accountBox, _accountHint);
@@ -268,6 +297,12 @@ namespace ServicesApp
                 _stopModeBox.SelectedIndex = (int)existing.StopMode;
                 _stopTimeoutBox.Value = existing.StopTimeoutSeconds;
                 _stopCommandBox.Text = existing.StopCommand ?? "";
+                _healthTypeBox.SelectedIndex = (int)existing.HealthCheckType;
+                _healthTargetBox.Text = existing.HealthCheckTarget ?? "";
+                _healthIntervalBox.Value = existing.HealthCheckIntervalSeconds;
+                _healthTimeoutBox.Value = existing.HealthCheckTimeoutSeconds;
+                _healthRetriesBox.Value = existing.HealthCheckFailureThreshold;
+                _healthStartPeriodBox.Value = existing.HealthCheckStartPeriodSeconds;
                 _memoryLimitBox.Value = existing.MemoryLimitMB;
                 _processMemoryLimitBox.Value = existing.ProcessMemoryLimitMB;
                 _cpuLimitBox.Value = existing.CpuLimitPercent;
@@ -282,263 +317,17 @@ namespace ServicesApp
                 _startupBox.SelectedIndex = 0;
                 _stopModeBox.SelectedIndex = 0;
                 _accountBox.SelectedIndex = 0;
+                _healthTypeBox.SelectedIndex = 0;
             }
             UpdateStopControls();
             UpdateAccountControls();
+            UpdateHealthControls();
 
             // Wrap in ScrollViewer but HIDE scrollbars (Clean UI)
             View = new ScrollViewer
             {
                 VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, // Hidden but scrollable
                 Content = form.Grid
-            };
-        }
-
-        /// <summary>
-        /// 输入框 + 同行右侧的选择按钮（文件：OpenFile 图标，文件夹：FolderOpen 图标）
-        /// </summary>
-        private static Grid CreatePickerRow(TextBox box, string glyph, string tooltip, Action onPick)
-        {
-            var row = new Grid { ColumnSpacing = 8 };
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-            var button = new Button
-            {
-                Content = new FontIcon { Glyph = glyph, FontSize = 16 },
-                VerticalAlignment = VerticalAlignment.Bottom,
-                MinHeight = 32
-            };
-            ToolTipService.SetToolTip(button, tooltip);
-            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, tooltip);
-            button.Click += (s, e) => onPick();
-            Grid.SetColumn(button, 1);
-
-            row.Children.Add(box);
-            row.Children.Add(button);
-            return row;
-        }
-
-        private static Microsoft.UI.Xaml.Media.Brush? GetThemeBrush(string key)
-        {
-            return Application.Current.Resources.TryGetValue(key, out var value) ? value as Microsoft.UI.Xaml.Media.Brush : null;
-        }
-
-        private static NumberBox CreateNumberBox(string header, int min, int max, int value)
-        {
-            return new NumberBox
-            {
-                Header = header,
-                Minimum = min,
-                Maximum = max,
-                Value = value,
-                SmallChange = 1,
-                LargeChange = 10,
-                SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact,
-                ValidationMode = NumberBoxValidationMode.InvalidInputOverwritten
-            };
-        }
-
-        private static int ReadNumber(NumberBox box, int fallback)
-        {
-            if (double.IsNaN(box.Value)) return fallback;
-            return (int)Math.Clamp(Math.Round(box.Value), box.Minimum, box.Maximum);
-        }
-
-        private void OnPickExe()
-        {
-            var pickedPath = Win32Helper.PickFile(_ownerHwnd, "选择可执行文件");
-            if (pickedPath == null) return;
-
-            _exeBox.Text = pickedPath;
-            if (string.IsNullOrWhiteSpace(_workDirBox.Text))
-            {
-                _workDirBox.Text = System.IO.Path.GetDirectoryName(pickedPath) ?? "";
-            }
-        }
-
-        private void OnPickWorkDir()
-        {
-            var pickedPath = Win32Helper.PickFolder(_ownerHwnd, "选择工作目录");
-            if (pickedPath != null) _workDirBox.Text = pickedPath;
-        }
-
-        /// <summary>
-        /// 校验表单，失败时在表单内显示错误信息并返回 false
-        /// </summary>
-        private ServiceStopMode SelectedStopMode =>
-            _stopModeBox.SelectedIndex >= 0 ? (ServiceStopMode)_stopModeBox.SelectedIndex : ServiceStopMode.Kill;
-
-        /// <summary>
-        /// 直接结束时无需超时；仅“执行停止命令”需要填写命令
-        /// </summary>
-        private void UpdateStopControls()
-        {
-            var mode = SelectedStopMode;
-            _stopTimeoutBox.Visibility = mode == ServiceStopMode.Kill ? Visibility.Collapsed : Visibility.Visible;
-            _stopCommandBox.Visibility = mode == ServiceStopMode.Command ? Visibility.Visible : Visibility.Collapsed;
-        }
-
-        private ServiceAccountType SelectedAccountType =>
-            _accountBox.SelectedIndex >= 0 ? (ServiceAccountType)_accountBox.SelectedIndex : ServiceAccountType.LocalSystem;
-
-        /// <summary>
-        /// 新建服务、从其他账户类型切换为指定用户或更换用户名时必须提供密码；同一用户可留空保持原密码
-        /// </summary>
-        private bool RequiresPassword =>
-            _existing == null ||
-            _existing.AccountType != ServiceAccountType.User ||
-            !string.Equals(_existing.AccountName, _accountNameBox.Text.Trim(), StringComparison.OrdinalIgnoreCase);
-
-        /// <summary>
-        /// 指定用户时填写的密码；留空或非指定用户时为 null（表示不修改密码）
-        /// </summary>
-        public string? Password =>
-            SelectedAccountType == ServiceAccountType.User && !string.IsNullOrEmpty(_passwordBox.Password) ? _passwordBox.Password : null;
-
-        private void UpdateAccountControls()
-        {
-            var isUser = SelectedAccountType == ServiceAccountType.User;
-            _accountNameBox.Visibility = isUser ? Visibility.Visible : Visibility.Collapsed;
-            _passwordBox.Visibility = isUser ? Visibility.Visible : Visibility.Collapsed;
-            _accountHint.Visibility = SelectedAccountType == ServiceAccountType.LocalSystem ? Visibility.Collapsed : Visibility.Visible;
-        }
-
-        public bool Validate()
-        {
-            string? error = null;
-            if (string.IsNullOrWhiteSpace(_nameBox.Text) || string.IsNullOrWhiteSpace(_exeBox.Text))
-            {
-                error = "服务名称和可执行文件路径为必填项。";
-            }
-            else if (_nameBox.Text.Trim().Any(c => !char.IsLetterOrDigit(c) && c != '_' && c != '-' && c != ' '))
-            {
-                error = "服务名称只能包含字母、数字、空格、下划线和短横线。";
-            }
-            else if (!System.IO.File.Exists(_exeBox.Text.Trim()))
-            {
-                error = "可执行文件不存在，请检查路径。";
-            }
-            else if (!TryParseEnvironment(out var environment, out var environmentError))
-            {
-                error = environmentError;
-            }
-            else if (!TryParseSecretEnvironment(out var secrets, out var secretError))
-            {
-                error = secretError;
-            }
-            else if (environment.Keys.FirstOrDefault(secrets.ContainsKey) is { } overlap)
-            {
-                error = $"变量 '{overlap}' 不能同时作为普通与敏感环境变量。";
-            }
-            else if (!TryParseDependencies(out _, out var dependenciesError))
-            {
-                error = dependenciesError;
-            }
-            else if (SelectedStopMode == ServiceStopMode.Command && string.IsNullOrWhiteSpace(_stopCommandBox.Text))
-            {
-                error = "停止方式为“执行停止命令”时必须填写停止命令。";
-            }
-            else if (SelectedAccountType == ServiceAccountType.User && string.IsNullOrWhiteSpace(_accountNameBox.Text))
-            {
-                error = "运行账户为“指定用户”时必须填写账户名。";
-            }
-            else if (SelectedAccountType == ServiceAccountType.User && RequiresPassword && string.IsNullOrEmpty(_passwordBox.Password))
-            {
-                error = "请填写该账户的密码。";
-            }
-
-            _errorText.Text = error ?? "";
-            _errorText.Visibility = error == null ? Visibility.Collapsed : Visibility.Visible;
-            if (error != null) _errorText.StartBringIntoView();
-            return error == null;
-        }
-
-        private bool TryParseEnvironment(out Dictionary<string, string> environment, out string? error)
-        {
-            try
-            {
-                environment = EnvironmentVariables.ParseText(_environmentBox.Text);
-                error = null;
-                return true;
-            }
-            catch (ArgumentException ex)
-            {
-                environment = EnvironmentVariables.Clone(null);
-                error = ex.Message;
-                return false;
-            }
-        }
-
-        /// <summary>
-        /// 解析敏感变量；值仍为遮蔽值的已有变量沿用原值
-        /// </summary>
-        private bool TryParseSecretEnvironment(out Dictionary<string, string> secrets, out string? error)
-        {
-            try
-            {
-                var edited = EnvironmentVariables.ParseText(_secretEnvironmentBox.Text);
-                secrets = EnvironmentVariables.RestoreMasked(edited,
-                    _existing?.SecretEnvironment ?? EnvironmentVariables.Clone(null), ServiceText.SecretMask);
-                error = null;
-                return true;
-            }
-            catch (ArgumentException ex)
-            {
-                secrets = EnvironmentVariables.Clone(null);
-                error = "敏感" + ex.Message;
-                return false;
-            }
-        }
-
-        private bool TryParseDependencies(out List<string> dependencies, out string? error)
-        {
-            dependencies = ServiceDependencies.ParseText(_dependenciesBox.Text);
-            try
-            {
-                ServiceDependencies.Validate(dependencies, _existing?.Id);
-                error = null;
-                return true;
-            }
-            catch (ArgumentException ex)
-            {
-                error = ex.Message;
-                return false;
-            }
-        }
-
-        public ServiceConfig ToConfig()
-        {
-            TryParseEnvironment(out var environment, out _);
-            TryParseSecretEnvironment(out var secrets, out _);
-            TryParseDependencies(out var dependencies, out _);
-            var (startupType, delayedAutoStart) = ServiceStartupModes.FromIndex(_startupBox.SelectedIndex);
-            return new ServiceConfig
-            {
-                Name = _nameBox.Text.Trim(),
-                ExePath = _exeBox.Text.Trim(),
-                Args = NormalizeLineEndings(_argsBox.Text).Trim(),
-                WorkingDir = _workDirBox.Text.Trim(),
-                Description = NormalizeLineEndings(_descriptionBox.Text).Trim(),
-                AutoRestart = _autoRestartCheck.IsChecked ?? false,
-                RestartDelaySeconds = ReadNumber(_restartDelayBox, RestartPolicyDefaults.DelaySeconds),
-                MaxRestarts = ReadNumber(_maxRestartsBox, RestartPolicyDefaults.MaxRestarts),
-                RestartResetMinutes = ReadNumber(_restartResetBox, RestartPolicyDefaults.ResetMinutes),
-                RestartBackoff = _restartBackoffCheck.IsChecked ?? RestartPolicyDefaults.Backoff,
-                StopMode = SelectedStopMode,
-                StopCommand = _stopCommandBox.Text.Trim(),
-                StopTimeoutSeconds = ReadNumber(_stopTimeoutBox, StopPolicyDefaults.TimeoutSeconds),
-                MemoryLimitMB = ReadNumber(_memoryLimitBox, 0),
-                ProcessMemoryLimitMB = ReadNumber(_processMemoryLimitBox, 0),
-                CpuLimitPercent = ReadNumber(_cpuLimitBox, 0),
-                MaxProcesses = ReadNumber(_maxProcessesBox, 0),
-                AccountType = SelectedAccountType,
-                AccountName = SelectedAccountType == ServiceAccountType.User ? _accountNameBox.Text.Trim() : null,
-                Environment = environment,
-                SecretEnvironment = secrets,
-                StartupType = startupType,
-                DelayedAutoStart = delayedAutoStart,
-                Dependencies = dependencies
             };
         }
 

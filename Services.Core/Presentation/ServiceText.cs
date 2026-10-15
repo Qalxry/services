@@ -96,6 +96,30 @@ namespace Services.Core.Presentation
 
         public static string Time(DateTime time) => time.ToString(TimeFormat);
 
+        public static string HealthCheck(HealthCheckType type, string? target, int intervalSeconds, int timeoutSeconds,
+            int failureThreshold, int startPeriodSeconds)
+        {
+            if (type == HealthCheckType.None) return "未启用";
+            var kind = type switch { HealthCheckType.Http => "HTTP", HealthCheckType.Tcp => "TCP", _ => "命令" };
+            return $"{kind} {target}（每 {intervalSeconds} 秒，超时 {timeoutSeconds} 秒，连续 {failureThreshold} 次失败视为不健康，" +
+                   $"启动宽限 {startPeriodSeconds} 秒）";
+        }
+
+        /// <summary>健康状态文本；未配置健康检查或尚无结果时返回 null</summary>
+        public static string? HealthStatus(string? status, string? message, int failures, DateTime? checkedAt)
+        {
+            if (status == null) return null;
+            var text = status switch
+            {
+                "healthy" => "健康",
+                "unhealthy" => $"不健康（连续失败 {failures} 次）",
+                "starting" => failures > 0 ? $"启动中（失败 {failures} 次）" : "启动中",
+                _ => status
+            };
+            if (checkedAt is { } at) text += $"，{Time(at)}";
+            return message != null ? $"{text}：{message}" : text;
+        }
+
         public static string ResourceLimits(int memoryMB, int processMemoryMB, int cpuPercent, int maxProcesses)
         {
             var parts = new List<string>();

@@ -44,6 +44,12 @@ namespace Services.Core.Storage
         public const string StopMode = "StopMode";
         public const string StopCommand = "StopCommand";
         public const string StopTimeoutSeconds = "StopTimeoutSeconds";
+        public const string HealthCheckType = "HealthCheckType";
+        public const string HealthCheckTarget = "HealthCheckTarget";
+        public const string HealthCheckIntervalSeconds = "HealthCheckIntervalSeconds";
+        public const string HealthCheckTimeoutSeconds = "HealthCheckTimeoutSeconds";
+        public const string HealthCheckFailureThreshold = "HealthCheckFailureThreshold";
+        public const string HealthCheckStartPeriodSeconds = "HealthCheckStartPeriodSeconds";
         public const string MemoryLimitMB = "MemoryLimitMB";
         public const string ProcessMemoryLimitMB = "ProcessMemoryLimitMB";
         public const string CpuLimitPercent = "CpuLimitPercent";

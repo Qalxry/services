@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using Services.Core.Application;
+using Services.Core.Health;
 using Services.Core.Helpers;
 using Services.Core.Models;
 using Services.Core.Presentation;
@@ -68,6 +69,15 @@ namespace Services.Cli
                     Command = string.IsNullOrEmpty(s.StopCommand) ? null : s.StopCommand,
                     TimeoutSeconds = s.StopTimeoutSeconds
                 },
+                HealthCheck = s.HealthCheckType == HealthCheckType.None ? null : new HealthCheckInfo
+                {
+                    Type = HealthCheckSpec.ToValue(s.HealthCheckType),
+                    Target = s.HealthCheckTarget ?? "",
+                    IntervalSeconds = s.HealthCheckIntervalSeconds,
+                    TimeoutSeconds = s.HealthCheckTimeoutSeconds,
+                    FailureThreshold = s.HealthCheckFailureThreshold,
+                    StartPeriodSeconds = s.HealthCheckStartPeriodSeconds
+                },
                 ResourceLimits = new ResourceLimitsInfo
                 {
                     MemoryMB = s.MemoryLimitMB,
@@ -106,6 +116,10 @@ namespace Services.Cli
                 LastExitAt = state.LastExitAt,
                 LastFailureReason = state.LastFailureReason,
                 LastFailureAt = state.LastFailureAt,
+                HealthStatus = state.HealthStatus,
+                HealthMessage = state.HealthMessage,
+                HealthCheckedAt = state.HealthCheckedAt,
+                HealthFailures = state.HealthFailures,
                 UpdatedAt = state.UpdatedAt
             };
         }

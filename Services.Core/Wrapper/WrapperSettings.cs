@@ -17,6 +17,18 @@ namespace Services.Core.Wrapper
     }
 
     /// <summary>
+    /// 健康检查配置（来自服务参数）
+    /// </summary>
+    public sealed record HealthCheckSettings(HealthCheckType Type, string Target, int IntervalSeconds, int TimeoutSeconds,
+        int FailureThreshold, int StartPeriodSeconds)
+    {
+        public static HealthCheckSettings None { get; } = new(HealthCheckType.None, "", HealthCheckDefaults.IntervalSeconds,
+            HealthCheckDefaults.TimeoutSeconds, HealthCheckDefaults.FailureThreshold, HealthCheckDefaults.StartPeriodSeconds);
+
+        public bool Enabled => Type != HealthCheckType.None;
+    }
+
+    /// <summary>
     /// 包装器启动时从注册表 Services\&lt;ID&gt;\Parameters 读取的全部配置。
     /// 程序路径缺失时抛出异常（服务无法运行）；其余字段读取失败时使用默认值。
     /// </summary>
@@ -34,6 +46,7 @@ namespace Services.Core.Wrapper
         public RestartPolicySettings Restart { get; init; } = RestartPolicySettings.Default;
         public StopPolicySettings Stop { get; init; } = StopPolicySettings.Default;
         public ResourceLimits Limits { get; init; } = ResourceLimits.None;
+        public HealthCheckSettings Health { get; init; } = HealthCheckSettings.None;
 
         public static WrapperSettings Load(string serviceId)
         {
@@ -66,7 +79,8 @@ namespace Services.Core.Wrapper
                     ReadNonNegative(key, ParameterNames.MemoryLimitMB),
                     ReadNonNegative(key, ParameterNames.ProcessMemoryLimitMB),
                     Math.Min(ReadNonNegative(key, ParameterNames.CpuLimitPercent), ResourceLimitRanges.MaxCpuPercent),
-                    ReadNonNegative(key, ParameterNames.MaxProcesses)), ResourceLimits.None)
+                    ReadNonNegative(key, ParameterNames.MaxProcesses)), ResourceLimits.None),
+                Health = Try(() => LoadHealthCheck(key), HealthCheckSettings.None)
             };
         }
 
@@ -94,6 +108,24 @@ namespace Services.Core.Wrapper
             if (mode == ServiceStopMode.Command && string.IsNullOrWhiteSpace(command))
                 mode = ServiceStopMode.Kill;
             return new StopPolicySettings(mode, command, timeout);
+        }
+
+        private static HealthCheckSettings LoadHealthCheck(RegistryKey key)
+        {
+            var type = key.GetValue(ParameterNames.HealthCheckType) is int value && Enum.IsDefined(typeof(HealthCheckType), value)
+                ? (HealthCheckType)value : HealthCheckType.None;
+            if (type == HealthCheckType.None) return HealthCheckSettings.None;
+
+            int Read(string name, int fallback, int min, int max) =>
+                key.GetValue(name) is int v && v >= min ? Math.Min(v, max) : fallback;
+
+            return new HealthCheckSettings(
+                type,
+                (key.GetValue(ParameterNames.HealthCheckTarget) as string ?? "").Trim(),
+                Read(ParameterNames.HealthCheckIntervalSeconds, HealthCheckDefaults.IntervalSeconds, 1, HealthCheckDefaults.MaxIntervalSeconds),
+                Read(ParameterNames.HealthCheckTimeoutSeconds, HealthCheckDefaults.TimeoutSeconds, 1, HealthCheckDefaults.MaxTimeoutSeconds),
+                Read(ParameterNames.HealthCheckFailureThreshold, HealthCheckDefaults.FailureThreshold, 1, HealthCheckDefaults.MaxFailureThreshold),
+                Read(ParameterNames.HealthCheckStartPeriodSeconds, HealthCheckDefaults.StartPeriodSeconds, 0, HealthCheckDefaults.MaxStartPeriodSeconds));
         }
 
         private static int ReadNonNegative(RegistryKey key, string name) =>

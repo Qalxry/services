@@ -116,6 +116,15 @@ namespace Services.Core.Models
         public string? StopCommand { get; set; }
         public int StopTimeoutSeconds { get; set; } = StopPolicyDefaults.TimeoutSeconds;
 
+        /// <summary>健康检查方式；None 表示不检查（其余字段见 <see cref="HealthCheckDefaults"/>）</summary>
+        public HealthCheckType HealthCheckType { get; set; } = HealthCheckType.None;
+        /// <summary>检查目标：http 为 URL，tcp 为 host:port，command 为命令行</summary>
+        public string? HealthCheckTarget { get; set; }
+        public int HealthCheckIntervalSeconds { get; set; } = HealthCheckDefaults.IntervalSeconds;
+        public int HealthCheckTimeoutSeconds { get; set; } = HealthCheckDefaults.TimeoutSeconds;
+        public int HealthCheckFailureThreshold { get; set; } = HealthCheckDefaults.FailureThreshold;
+        public int HealthCheckStartPeriodSeconds { get; set; } = HealthCheckDefaults.StartPeriodSeconds;
+
         /// <summary>目标程序进程树的内存上限（MB），0 表示不限制</summary>
         public int MemoryLimitMB { get; set; }
         /// <summary>单个进程的内存上限（MB），0 表示不限制</summary>
@@ -169,6 +178,12 @@ namespace Services.Core.Models
             StopMode = other.StopMode;
             StopCommand = other.StopCommand;
             StopTimeoutSeconds = other.StopTimeoutSeconds;
+            HealthCheckType = other.HealthCheckType;
+            HealthCheckTarget = other.HealthCheckTarget;
+            HealthCheckIntervalSeconds = other.HealthCheckIntervalSeconds;
+            HealthCheckTimeoutSeconds = other.HealthCheckTimeoutSeconds;
+            HealthCheckFailureThreshold = other.HealthCheckFailureThreshold;
+            HealthCheckStartPeriodSeconds = other.HealthCheckStartPeriodSeconds;
             MemoryLimitMB = other.MemoryLimitMB;
             ProcessMemoryLimitMB = other.ProcessMemoryLimitMB;
             CpuLimitPercent = other.CpuLimitPercent;
@@ -213,6 +228,12 @@ namespace Services.Core.Models
         public ServiceStopMode StopMode { get; set; } = ServiceStopMode.Kill;
         public string? StopCommand { get; set; }
         public int StopTimeoutSeconds { get; set; } = StopPolicyDefaults.TimeoutSeconds;
+        public HealthCheckType HealthCheckType { get; set; } = HealthCheckType.None;
+        public string? HealthCheckTarget { get; set; }
+        public int HealthCheckIntervalSeconds { get; set; } = HealthCheckDefaults.IntervalSeconds;
+        public int HealthCheckTimeoutSeconds { get; set; } = HealthCheckDefaults.TimeoutSeconds;
+        public int HealthCheckFailureThreshold { get; set; } = HealthCheckDefaults.FailureThreshold;
+        public int HealthCheckStartPeriodSeconds { get; set; } = HealthCheckDefaults.StartPeriodSeconds;
         /// <summary>资源限制，0 表示不限制（取值范围见 <see cref="ResourceLimitRanges"/>）</summary>
         public int MemoryLimitMB { get; set; }
         public int ProcessMemoryLimitMB { get; set; }
@@ -251,6 +272,12 @@ namespace Services.Core.Models
                 StopMode = service.StopMode,
                 StopCommand = service.StopCommand,
                 StopTimeoutSeconds = service.StopTimeoutSeconds,
+                HealthCheckType = service.HealthCheckType,
+                HealthCheckTarget = service.HealthCheckTarget,
+                HealthCheckIntervalSeconds = service.HealthCheckIntervalSeconds,
+                HealthCheckTimeoutSeconds = service.HealthCheckTimeoutSeconds,
+                HealthCheckFailureThreshold = service.HealthCheckFailureThreshold,
+                HealthCheckStartPeriodSeconds = service.HealthCheckStartPeriodSeconds,
                 MemoryLimitMB = service.MemoryLimitMB,
                 ProcessMemoryLimitMB = service.ProcessMemoryLimitMB,
                 CpuLimitPercent = service.CpuLimitPercent,
@@ -309,6 +336,35 @@ namespace Services.Core.Models
         Virtual = 3,
         /// <summary>指定的本地或域用户（需要密码）</summary>
         User = 4
+    }
+
+    public enum HealthCheckType
+    {
+        None = 0,
+        /// <summary>HTTP GET，2xx / 3xx 为健康</summary>
+        Http = 1,
+        /// <summary>TCP 端口可连接为健康</summary>
+        Tcp = 2,
+        /// <summary>命令退出码为 0 为健康</summary>
+        Command = 3
+    }
+
+    /// <summary>
+    /// 健康检查的默认值与取值范围
+    /// </summary>
+    public static class HealthCheckDefaults
+    {
+        public const int IntervalSeconds = 30;
+        public const int TimeoutSeconds = 5;
+        /// <summary>连续失败多少次判定为不健康</summary>
+        public const int FailureThreshold = 3;
+        /// <summary>目标程序启动后的宽限期：期间的失败不计数</summary>
+        public const int StartPeriodSeconds = 30;
+
+        public const int MaxIntervalSeconds = 3600;
+        public const int MaxTimeoutSeconds = 300;
+        public const int MaxFailureThreshold = 100;
+        public const int MaxStartPeriodSeconds = 3600;
     }
 
     /// <summary>

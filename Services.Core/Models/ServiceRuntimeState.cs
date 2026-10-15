@@ -37,6 +37,16 @@ namespace Services.Core.Models
         /// <summary>记录 LastFailureReason 的时间（用于判断失败原因是否属于本次启动）</summary>
         public DateTime? LastFailureAt { get; set; }
 
+        /// <summary>健康状态：starting（宽限期内）/ healthy / unhealthy；未配置健康检查时为 null</summary>
+        public string? HealthStatus { get; set; }
+
+        /// <summary>最近一次健康检查的时间与结果说明</summary>
+        public DateTime? HealthCheckedAt { get; set; }
+        public string? HealthMessage { get; set; }
+
+        /// <summary>当前连续失败次数</summary>
+        public int HealthFailures { get; set; }
+
         public DateTime UpdatedAt { get; set; }
 
         /// <summary>

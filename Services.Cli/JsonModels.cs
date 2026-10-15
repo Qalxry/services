@@ -24,6 +24,8 @@ namespace Services.Cli
         public bool AutoRestart { get; set; }
         public RestartPolicyInfo RestartPolicy { get; set; } = new();
         public StopPolicyInfo StopPolicy { get; set; } = new();
+        /// <summary>健康检查配置；未启用时为 null</summary>
+        public HealthCheckInfo? HealthCheck { get; set; }
         public ResourceLimitsInfo ResourceLimits { get; set; } = new();
         public AccountInfo Account { get; set; } = new();
         /// <summary>服务级环境变量（名称 → 值，按名称排序）；值中的 %VAR% 引用在启动时展开。未设置时为空对象</summary>
@@ -57,6 +59,11 @@ namespace Services.Cli
         /// <summary>包装器最近一次以失败状态停止的原因</summary>
         public string? LastFailureReason { get; set; }
         public DateTime? LastFailureAt { get; set; }
+        /// <summary>starting / healthy / unhealthy；未配置健康检查时为 null</summary>
+        public string? HealthStatus { get; set; }
+        public string? HealthMessage { get; set; }
+        public DateTime? HealthCheckedAt { get; set; }
+        public int HealthFailures { get; set; }
         public DateTime UpdatedAt { get; set; }
     }
 
@@ -75,6 +82,17 @@ namespace Services.Cli
         public string Mode { get; set; } = "kill";
         public string? Command { get; set; }
         public int TimeoutSeconds { get; set; }
+    }
+
+    internal sealed class HealthCheckInfo
+    {
+        /// <summary>http / tcp / command</summary>
+        public string Type { get; set; } = "";
+        public string Target { get; set; } = "";
+        public int IntervalSeconds { get; set; }
+        public int TimeoutSeconds { get; set; }
+        public int FailureThreshold { get; set; }
+        public int StartPeriodSeconds { get; set; }
     }
 
     /// <summary>资源限制，0 表示不限制</summary>

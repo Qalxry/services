@@ -15,7 +15,7 @@ namespace Services.Core.Services
     /// 生命周期由 <see cref="SupervisorStateMachine"/> 决定；所有状态转换与目标程序的启动都在 _gate 锁内完成，
     /// 停止、重启等待、退出事件之间不存在竞态。耗时操作（停止进程、等待输出）与调用 ServiceBase.Stop 在锁外进行。
     /// </summary>
-    public class EmbeddedServiceWrapper : ServiceBase
+    public partial class EmbeddedServiceWrapper : ServiceBase
     {
         private readonly string _serviceId;
         private readonly object _gate = new();
@@ -33,6 +33,10 @@ namespace Services.Core.Services
         private JobObject? _job;
         // 资源限制所在的 Job（嵌套在 _job 之内，只包含目标程序及其子进程，包装器自身不受限制）
         private JobObject? _limitsJob;
+        // 当前目标进程的健康检查；进程退出或服务停止时取消
+        private CancellationTokenSource? _healthCts;
+        // 因健康检查失败而被结束的进程代数与原因
+        private (int Generation, string Reason)? _healthKill;
         private AsyncLogger? _logger;
 
         // 系统关机时 SCM 只给服务很短的时间（默认约 5 秒），优雅停止的等待上限
@@ -113,6 +117,7 @@ namespace Services.Core.Services
         {
             if (disposing)
             {
+                _healthCts?.Dispose();
                 _stopCts.Dispose();
                 _startCompleted.Dispose();
             }
@@ -164,6 +169,7 @@ namespace Services.Core.Services
                 _process = process;
                 _machine!.ProcessStarted(generation);
                 _runtime?.ProcessStarted(process.Id, DateTime.Now);
+                StartHealthMonitor(process, generation);
                 return SupervisorDecision.None;
             }
             catch (Exception ex)
@@ -175,33 +181,6 @@ namespace Services.Core.Services
                                     win32.NativeErrorCode is 2 or 3;
                 return _machine!.ProcessStartFailed(generation, fileNotFound, settings.ExePath, ex.Message, DateTime.Now);
             }
-        }
-
-        /// <summary>
-        /// 将刚启动的目标程序加入资源限制 Job。进程启动后立即加入，此后创建的子进程同样受限；
-        /// 加入失败只记录警告，不影响运行。
-        /// </summary>
-        private void ApplyResourceLimits(Process process)
-        {
-            var limits = _settings!.Limits;
-            if (limits.IsEmpty) return;
-            try
-            {
-                if (_limitsJob == null)
-                {
-                    _limitsJob = JobObject.CreateWithLimits(limits);
-                    LogSystem($"Resource limits: memory {Describe(limits.MemoryLimitMB, "MB")}, per-process memory " +
-                              $"{Describe(limits.ProcessMemoryLimitMB, "MB")}, CPU {Describe(limits.CpuLimitPercent, "%")}, " +
-                              $"processes {Describe(limits.MaxProcesses, "")}");
-                }
-                _limitsJob.AssignProcess(process.Handle);
-            }
-            catch (Exception ex)
-            {
-                LogSystem($"Warning: failed to apply resource limits: {ex.Message}");
-            }
-
-            static string Describe(int value, string unit) => value > 0 ? $"{value}{unit}" : "unlimited";
         }
 
         private void OnTargetExited(Process process, int generation)
@@ -219,6 +198,7 @@ namespace Services.Core.Services
 
             // 先读完剩余输出，使日志中程序的最后几行出现在“进程退出”之前
             ProcessOutput.Drain(process, ProcessOutput.DrainTimeout);
+            string? healthReason = null;
 
             SupervisorDecision decision;
             lock (_gate)
@@ -230,11 +210,17 @@ namespace Services.Core.Services
                 {
                     LogSystem($"Process exited (code: {exitCode})");
                     _runtime?.ProcessExited(exitCode, DateTime.Now);
+                    _healthCts?.Cancel();
                 }
+                if (_healthKill?.Generation == generation) healthReason = _healthKill.Value.Reason;
                 if (_machine.IsStopping) return;
 
                 decision = _machine.ProcessExited(generation, exitCode, DateTime.Now);
             }
+
+            // 因健康检查失败被结束：失败原因中注明，便于定位
+            if (healthReason != null && decision.Action == SupervisorAction.FailService)
+                decision = decision with { Reason = $"Health check failed ({healthReason}); {decision.Reason}" };
             Execute(decision);
         }
 
@@ -391,82 +377,6 @@ namespace Services.Core.Services
 
         #endregion
 
-        #region 环境
-
-        private void Log(LogLineKind kind, string text)
-        {
-            _logger?.Log(LogLine.Format(kind, text, DateTime.Now));
-        }
-
-        private void LogSystem(string message) => Log(LogLineKind.System, message);
-
-        private void InitLogger()
-        {
-            var logDir = new LogManager().GetLogDirectory();
-            Directory.CreateDirectory(logDir);
-            var logFile = Path.Combine(logDir, $"{_serviceId}_{DateTime.Now:yyyyMMdd_HHmmss}.log");
-            _logger = new AsyncLogger(logFile);
-        }
-
-        /// <summary>
-        /// 服务启动时按全局设置清理一次日志（GUI 未运行时也能生效）。
-        /// 在后台执行且吞掉所有异常，不影响服务启动；正在写入的日志文件无法删除，会被自动跳过。
-        /// </summary>
-        private static void CleanupLogsInBackground()
-        {
-            Task.Run(() =>
-            {
-                try { new LogManager().CleanupLogs(); }
-                catch { }
-            });
-        }
-
-        /// <summary>
-        /// 将包装器进程加入 KILL_ON_JOB_CLOSE 的 Job。目标程序及其子进程创建时即继承该 Job，
-        /// 包装器以任何方式退出（包括崩溃、被强制结束）时，系统都会结束整个进程树，避免遗留孤儿进程。
-        /// </summary>
-        private void EnterJobObject()
-        {
-            try
-            {
-                _job = new JobObject();
-                _job.AssignCurrentProcess();
-            }
-            catch (Exception ex)
-            {
-                // 此时 Job 内尚无任何进程，关闭句柄是安全的
-                _job?.Dispose();
-                _job = null;
-                LogSystem($"Warning: failed to create job object, child processes may outlive the wrapper: {ex.Message}");
-            }
-        }
-
-        /// <summary>
-        /// 使“非 0 退出也触发 SCM 恢复策略”与自动重启设置一致，让旧版本创建的服务无需编辑即可生效。
-        /// 低权限运行账户无权修改服务配置，失败时忽略（创建 / 编辑服务时已由管理端设置）。
-        /// </summary>
-        private void SyncFailureActionsFlag(bool autoRestart)
-        {
-            try
-            {
-                ScmClient.SetFailureActionsOnNonCrashFailures(_serviceId, autoRestart);
-            }
-            catch { }
-        }
-
-        private void LogCriticalError(Exception ex)
-        {
-            try
-            {
-                var logDir = new LogManager().GetLogDirectory();
-                Directory.CreateDirectory(logDir);
-                var logFile = Path.Combine(logDir, $"{_serviceId}_CRASH_{DateTime.Now:yyyyMMdd_HHmmss}.log");
-                File.WriteAllText(logFile, $"Service Startup Failed:\n{ex}");
-            }
-            catch { }
-        }
-
-        #endregion
     }
 
     /// <summary>

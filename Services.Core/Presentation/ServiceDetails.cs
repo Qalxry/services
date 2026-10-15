@@ -33,6 +33,9 @@ namespace Services.Core.Presentation
                 new("重启次数", runtime == null ? null : ServiceText.Restarts(runtime.RestartCount, runtime.TotalRestarts)),
                 new("上次退出", runtime == null ? null : ServiceText.LastExit(runtime.LastExitCode, runtime.LastExitAt)),
             };
+            if (service.HealthCheckType != HealthCheckType.None)
+                rows.Add(new("健康状态", runtime == null ? null
+                    : ServiceText.HealthStatus(runtime.HealthStatus, runtime.HealthMessage, runtime.HealthFailures, runtime.HealthCheckedAt)));
             if (!string.IsNullOrWhiteSpace(runtime?.LastFailureReason))
                 rows.Add(new("最近失败原因", runtime.LastFailureReason));
 
@@ -42,6 +45,8 @@ namespace Services.Core.Presentation
                 new("失败自动重启", ServiceText.RestartPolicy(service.AutoRestart, service.RestartDelaySeconds,
                     service.MaxRestarts, service.RestartResetMinutes, service.RestartBackoff)),
                 new("停止方式", ServiceText.StopPolicy(service.StopMode, service.StopCommand, service.StopTimeoutSeconds)),
+                new("健康检查", ServiceText.HealthCheck(service.HealthCheckType, service.HealthCheckTarget, service.HealthCheckIntervalSeconds,
+                    service.HealthCheckTimeoutSeconds, service.HealthCheckFailureThreshold, service.HealthCheckStartPeriodSeconds)),
                 new("资源限制", ServiceText.ResourceLimits(service.MemoryLimitMB, service.ProcessMemoryLimitMB,
                     service.CpuLimitPercent, service.MaxProcesses)),
                 new("运行账户", service.AccountName, true),

@@ -308,6 +308,14 @@ namespace Services.Core.Services
                 config.MaxProcesses is < 0 or > ResourceLimitRanges.MaxProcesses)
                 throw new ArgumentException("Resource limit is out of range.");
 
+            if (Health.HealthCheckSpec.Validate(config.HealthCheckType, config.HealthCheckTarget) is { } healthError)
+                throw new ArgumentException(healthError);
+            if (config.HealthCheckIntervalSeconds is < 1 or > HealthCheckDefaults.MaxIntervalSeconds ||
+                config.HealthCheckTimeoutSeconds is < 1 or > HealthCheckDefaults.MaxTimeoutSeconds ||
+                config.HealthCheckFailureThreshold is < 1 or > HealthCheckDefaults.MaxFailureThreshold ||
+                config.HealthCheckStartPeriodSeconds is < 0 or > HealthCheckDefaults.MaxStartPeriodSeconds)
+                throw new ArgumentException("Health check setting is out of range.");
+
             EnvironmentVariables.Validate(config.Environment);
             EnvironmentVariables.Validate(config.SecretEnvironment);
             var overlap = config.Environment.Keys.FirstOrDefault(config.SecretEnvironment.ContainsKey);

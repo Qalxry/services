@@ -19,6 +19,9 @@ namespace Services.TestTarget
     ///   --exit &lt;code&gt;            输出完毕后（等待 --delay 毫秒）以指定退出码退出；不指定则一直运行
     ///   --delay &lt;ms&gt;
     ///   --tick &lt;ms&gt;              运行期间每隔指定毫秒向 stdout 输出 "tick &lt;n&gt;"
+    ///   --listen &lt;port&gt;          在 127.0.0.1 上监听 TCP 端口（接受连接后立即关闭）
+    ///   --http &lt;port&gt;            在 127.0.0.1 上提供最简 HTTP：返回 200，超过 --unhealthy-after 毫秒后返回 500
+    ///   --unhealthy-after &lt;ms&gt;
     /// 准备完毕后输出 "ready"。
     /// </summary>
     internal static class Program
@@ -111,6 +114,9 @@ namespace Services.TestTarget
                 }) { IsBackground = true }.Start();
             }
 
+            if (options.Listen > 0) StartServer(options.Listen, http: false, unhealthyAfter: 0);
+            if (options.Http > 0) StartServer(options.Http, http: true, options.UnhealthyAfter);
+
             if (options.Tick > 0)
             {
                 new Thread(() =>
@@ -136,6 +142,35 @@ namespace Services.TestTarget
             return exitCode;
         }
 
+        private static void StartServer(int port, bool http, int unhealthyAfter)
+        {
+            var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, port);
+            listener.Start();
+            var started = Environment.TickCount64;
+            new Thread(() =>
+            {
+                while (true)
+                {
+                    using var client = listener.AcceptTcpClient();
+                    if (!http) continue;
+                    try
+                    {
+                        var stream = client.GetStream();
+                        var buffer = new byte[4096];
+                        stream.Read(buffer, 0, buffer.Length);
+                        bool healthy = unhealthyAfter <= 0 || Environment.TickCount64 - started < unhealthyAfter;
+                        var status = healthy ? "200 OK" : "500 Internal Server Error";
+                        var response = System.Text.Encoding.ASCII.GetBytes($"HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                        stream.Write(response, 0, response.Length);
+                    }
+                    catch (IOException)
+                    {
+                    }
+                }
+            }) { IsBackground = true }.Start();
+            Console.Out.WriteLine($"listening {port}");
+        }
+
         private sealed class Options
         {
             public string? Record;
@@ -154,6 +189,9 @@ namespace Services.TestTarget
             public int Delay;
             public int Tick;
             public bool Sleep;
+            public int Listen;
+            public int Http;
+            public int UnhealthyAfter;
 
             public static Options Parse(string[] args)
             {
@@ -179,6 +217,9 @@ namespace Services.TestTarget
                         case "--delay": o.Delay = int.Parse(Next()); break;
                         case "--tick": o.Tick = int.Parse(Next()); break;
                         case "--sleep": o.Sleep = true; break;
+                        case "--listen": o.Listen = int.Parse(Next()); break;
+                        case "--http": o.Http = int.Parse(Next()); break;
+                        case "--unhealthy-after": o.UnhealthyAfter = int.Parse(Next()); break;
                         default: throw new ArgumentException($"unknown option {args[i]}");
                     }
                 }

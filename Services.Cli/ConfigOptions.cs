@@ -1,3 +1,4 @@
+using Services.Core.Health;
 using Services.Core.Helpers;
 using Services.Core.Models;
 using Services.Core.Services;
@@ -91,6 +92,39 @@ namespace Services.Cli
             if (args.GetInt("stop-timeout", 1, StopPolicyDefaults.MaxTimeoutSeconds) is { } stopTimeout)
             {
                 config.StopTimeoutSeconds = stopTimeout;
+                changed++;
+            }
+
+            if (args.GetValue("health-check") is { } healthType)
+            {
+                if (!HealthCheckSpec.TryParseType(healthType, out var type))
+                    throw new UsageException($"--health-check 只能是 none、http、tcp 或 command，实际为 '{healthType}'。", args.Command);
+                config.HealthCheckType = type;
+                changed++;
+            }
+            if (args.GetValue("health-target") is { } healthTarget)
+            {
+                config.HealthCheckTarget = healthTarget.Trim();
+                changed++;
+            }
+            if (args.GetInt("health-interval", 1, HealthCheckDefaults.MaxIntervalSeconds) is { } healthInterval)
+            {
+                config.HealthCheckIntervalSeconds = healthInterval;
+                changed++;
+            }
+            if (args.GetInt("health-timeout", 1, HealthCheckDefaults.MaxTimeoutSeconds) is { } healthTimeout)
+            {
+                config.HealthCheckTimeoutSeconds = healthTimeout;
+                changed++;
+            }
+            if (args.GetInt("health-retries", 1, HealthCheckDefaults.MaxFailureThreshold) is { } healthRetries)
+            {
+                config.HealthCheckFailureThreshold = healthRetries;
+                changed++;
+            }
+            if (args.GetInt("health-start-period", 0, HealthCheckDefaults.MaxStartPeriodSeconds) is { } healthStart)
+            {
+                config.HealthCheckStartPeriodSeconds = healthStart;
                 changed++;
             }
 
@@ -197,6 +231,8 @@ namespace Services.Cli
 
             if (config.StopMode == ServiceStopMode.Command && string.IsNullOrWhiteSpace(config.StopCommand))
                 throw new UsageException("--stop-mode command 需要同时指定 --stop-command。", args.Command);
+            if (HealthCheckSpec.Validate(config.HealthCheckType, config.HealthCheckTarget) is { } healthError)
+                throw new UsageException($"{healthError}（--health-target）。", args.Command);
 
             if (config.ExePath.Length > 0 && !File.Exists(config.ExePath))
                 throw new UsageException($"可执行文件不存在: {config.ExePath}", args.Command);

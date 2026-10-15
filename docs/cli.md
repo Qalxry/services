@@ -126,6 +126,8 @@ JSON 字段:
   restartPolicy     { delaySeconds, maxRestarts (0=不限), resetMinutes, backoff }
   stopPolicy        { mode (kill | ctrl-c | command), command, timeoutSeconds }
   account           { type (localsystem | localservice | networkservice | virtual | user), name }
+  healthCheck       健康检查 { type, target, intervalSeconds, timeoutSeconds, failureThreshold,
+                    startPeriodSeconds }，未启用时为 null
   resourceLimits    资源限制 { memoryMB, processMemoryMB, cpuPercent, maxProcesses }，0 表示不限制
   environment       服务级环境变量对象 { 变量名: 值 }（按变量名排序，值为未展开的原始文本），未设置时为 {}
   secretEnvironment 敏感环境变量对象 { 变量名: 值 }，值默认为 null（遮蔽），--show-secrets 时为真实值；
@@ -145,6 +147,10 @@ JSON 字段:
                       lastExitAt         目标进程最近一次的退出时间
                       lastFailureReason  包装器最近一次以失败状态停止的原因，没有时为 null
                       lastFailureAt      记录该失败原因的时间，没有时为 null
+                      healthStatus       健康状态 starting / healthy / unhealthy，未配置健康检查时为 null
+                      healthMessage      最近一次健康检查的结果说明
+                      healthCheckedAt    最近一次健康检查的时间
+                      healthFailures     当前连续失败次数
                       updatedAt          状态最后更新时间
 
 权限: 普通权限即可。
@@ -188,6 +194,19 @@ servicesctl create - 创建新服务
                         {workdir} 工作目录（均自动加引号）、{pid} 进程 ID。
                         例：nginx 用 "{exe} -s quit"（若启动参数含 -p / -c，停止命令需带相同参数）
   --stop-timeout <秒>   优雅停止的最长等待时间，1-3600，默认 30。系统关机时最多等待 4 秒
+  --health-check <方式> 健康检查：none（默认）| http | tcp | command。连续失败达到 --health-retries 次时
+                        结束目标程序，再按失败自动重启策略处理（未启用自动重启则以失败状态停止服务）
+  --health-target <目标>
+                        http：完整 URL，2xx / 3xx 为健康，如 http://127.0.0.1:8080/health
+                        tcp：host:port，可连接为健康，如 127.0.0.1:5432
+                        command：在工作目录中通过 cmd 执行，退出码 0 为健康；占位符同 --stop-command
+  --health-interval <秒>
+                        检查间隔，1-3600，默认 30
+  --health-timeout <秒> 单次检查超时，1-300，默认 5
+  --health-retries <次> 连续失败多少次视为不健康，1-100，默认 3
+  --health-start-period <秒>
+                        启动宽限期：目标程序启动后这段时间内的失败不计数（期间一次成功即结束宽限），
+                        0-3600，默认 30
   --memory-limit <MB>   目标程序进程树（含子进程）的内存上限，超出时内存分配失败；0 表示不限制
   --process-memory-limit <MB>
                         单个进程的内存上限；0 表示不限制
@@ -271,6 +290,19 @@ servicesctl update - 修改已有服务的配置（只修改指定的字段，�
                         {workdir} 工作目录（均自动加引号）、{pid} 进程 ID。
                         例：nginx 用 "{exe} -s quit"（若启动参数含 -p / -c，停止命令需带相同参数）
   --stop-timeout <秒>   优雅停止的最长等待时间，1-3600，默认 30。系统关机时最多等待 4 秒
+  --health-check <方式> 健康检查：none（默认）| http | tcp | command。连续失败达到 --health-retries 次时
+                        结束目标程序，再按失败自动重启策略处理（未启用自动重启则以失败状态停止服务）
+  --health-target <目标>
+                        http：完整 URL，2xx / 3xx 为健康，如 http://127.0.0.1:8080/health
+                        tcp：host:port，可连接为健康，如 127.0.0.1:5432
+                        command：在工作目录中通过 cmd 执行，退出码 0 为健康；占位符同 --stop-command
+  --health-interval <秒>
+                        检查间隔，1-3600，默认 30
+  --health-timeout <秒> 单次检查超时，1-300，默认 5
+  --health-retries <次> 连续失败多少次视为不健康，1-100，默认 3
+  --health-start-period <秒>
+                        启动宽限期：目标程序启动后这段时间内的失败不计数（期间一次成功即结束宽限），
+                        0-3600，默认 30
   --memory-limit <MB>   目标程序进程树（含子进程）的内存上限，超出时内存分配失败；0 表示不限制
   --process-memory-limit <MB>
                         单个进程的内存上限；0 表示不限制
@@ -473,6 +505,8 @@ servicesctl export - 导出服务配置为 JSON（可用于备份、版本管理
         "autoRestart": true,
         "restartPolicy": { "delaySeconds": 5, "maxRestarts": 5, "resetMinutes": 10, "backoff": true },
         "stopPolicy": { "mode": "kill", "command": null, "timeoutSeconds": 30 },
+        "healthCheck": { "type": "http", "target": "http://127.0.0.1:8080/health", "intervalSeconds": 30,
+                         "timeoutSeconds": 5, "failureThreshold": 3, "startPeriodSeconds": 30 },
         "resourceLimits": { "memoryMB": 512, "processMemoryMB": 0, "cpuPercent": 50, "maxProcesses": 0 }
       }
     ]
