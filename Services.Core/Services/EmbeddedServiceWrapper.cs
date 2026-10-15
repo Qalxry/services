@@ -4,48 +4,42 @@ using System.IO;
 using System.ServiceProcess;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Win32;
 using Services.Core.Helpers;
-using Services.Core.Models;
+using Services.Core.Wrapper;
 
 namespace Services.Core.Services
 {
+    /// <summary>
+    /// 服务包装器：作为 Windows 服务运行，启动并监管目标程序（输出写入日志、按策略重启与停止）。
+    /// 生命周期由 <see cref="SupervisorStateMachine"/> 决定；所有状态转换与目标程序的启动都在 _gate 锁内完成，
+    /// 停止、重启等待、退出事件之间不存在竞态。耗时操作（停止进程、等待输出）与调用 ServiceBase.Stop 在锁外进行。
+    /// </summary>
     public class EmbeddedServiceWrapper : ServiceBase
     {
+        private readonly string _serviceId;
+        private readonly object _gate = new();
+        // 停止时取消重启等待
+        private readonly CancellationTokenSource _stopCts = new();
+        // OnStart 已返回（成功或失败）
+        private readonly ManualResetEventSlim _startCompleted = new(false);
+
+        private WrapperSettings? _settings;
+        private SupervisorStateMachine? _machine;
+        private RuntimeStateRecorder? _runtime;
         private Process? _process;
         // 包装器进程自身所在的 Job（KILL_ON_JOB_CLOSE）。生命周期与包装器进程一致，不主动关闭：
         // 关闭句柄会结束 Job 内所有进程（包括包装器自身），应由进程退出时由系统关闭。
         private JobObject? _job;
-        private string _serviceName;
         private AsyncLogger? _logger;
-        private bool _autoRestart = false;
-        private int _restartDelayMs = RestartPolicyDefaults.DelaySeconds * 1000;
-        private int _maxRestarts = RestartPolicyDefaults.MaxRestarts;
-        private int _restartResetMinutes = RestartPolicyDefaults.ResetMinutes;
-        private bool _restartBackoff = RestartPolicyDefaults.Backoff;
-        private bool _isStopping = false;
-        private bool _stopCompleted = false;
-        private ServiceStopMode _stopMode = ServiceStopMode.Kill;
-        private string _stopCommand = "";
-        private int _stopTimeoutSeconds = StopPolicyDefaults.TimeoutSeconds;
-        private IReadOnlyDictionary<string, string> _environment = new Dictionary<string, string>();
-        private (string ExePath, string Args, string WorkingDir) _config;
-        private int _restartCount = 0;
-        private DateTime _lastRestartTime = DateTime.MinValue;
-        private readonly object _stateLock = new();
-        private ServiceStateStore? _stateStore;
-        private ServiceRuntimeState? _state;
 
         // 系统关机时 SCM 只给服务很短的时间（默认约 5 秒），优雅停止的等待上限
         private const int ShutdownStopTimeoutSeconds = 4;
-
-        // 服务以失败状态停止时报告给 SCM 的 Win32 退出码
-        private const int ERROR_FILE_NOT_FOUND = 2;
-        private const int ERROR_PROCESS_ABORTED = 1067;
+        // 服务启动阶段出错（配置缺失等）时报告给 SCM 的退出码：ERROR_EXCEPTION_IN_SERVICE
+        private const int ErrorExceptionInService = 1064;
 
         public EmbeddedServiceWrapper(string serviceName)
         {
-            _serviceName = serviceName;
+            _serviceId = serviceName;
             ServiceName = serviceName;
             // 系统关机时同样尝试优雅停止目标程序
             CanShutdown = true;
@@ -55,85 +49,328 @@ namespace Services.Core.Services
         {
             try
             {
-                InitRuntimeState();
-                var config = LoadConfig();
-                _config = config;
-                LoadRestartPolicy();
-                LoadStopPolicy();
-                LoadEnvironment();
-                SyncFailureActionsFlag();
+                StartCore();
+            }
+            finally
+            {
+                _startCompleted.Set();
+            }
+        }
+
+        private void StartCore()
+        {
+            _runtime = new RuntimeStateRecorder(_serviceId, Environment.ProcessId, DateTime.Now);
+
+            SupervisorDecision decision;
+            try
+            {
+                _settings = WrapperSettings.Load(_serviceId);
+                _machine = new SupervisorStateMachine(_settings.Restart);
+                SyncFailureActionsFlag(_settings.Restart.Enabled);
 
                 InitLogger();
                 CleanupLogsInBackground();
                 EnterJobObject();
-                StartTargetProcess(config);
+
+                lock (_gate)
+                {
+                    decision = StartTargetLocked(_machine.BeginInitialStart());
+                }
             }
             catch (Exception ex)
             {
                 LogCriticalError(ex);
-                UpdateRuntimeState(s => s.LastFailureReason = $"Service startup failed: {ex.Message}");
-                ExitCode = 1064;
-                Stop();
+                FailDuringStart(ErrorExceptionInService, $"Service startup failed: {ex.Message}");
+                return;
+            }
+
+            // 首次启动即失败且不再重试（程序不存在、未启用自动重启）：在 OnStart 中抛出，
+            // 由 ServiceBase 直接以失败状态结束启动。OnStart 期间调用 Stop() 会与启动完成的状态报告相互覆盖。
+            if (decision.Action == SupervisorAction.FailService)
+            {
+                FailDuringStart(decision.ExitCode, decision.Reason!);
+                return;
+            }
+            Execute(decision);
+        }
+
+        protected override void OnStop()
+        {
+            StopTarget(_settings?.Stop.TimeoutSeconds ?? 0, () => RequestAdditionalTime(5000));
+        }
+
+        protected override void OnShutdown()
+        {
+            StopTarget(Math.Min(_settings?.Stop.TimeoutSeconds ?? 0, ShutdownStopTimeoutSeconds), () => { });
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                _stopCts.Dispose();
+                _startCompleted.Dispose();
+            }
+            base.Dispose(disposing);
+        }
+
+        #region 目标程序
+
+        /// <summary>
+        /// 启动目标程序（调用方持有 _gate，状态机处于 Starting）。返回启动失败时的后续动作。
+        /// </summary>
+        private SupervisorDecision StartTargetLocked(int generation)
+        {
+            var settings = _settings!;
+            Process? process = null;
+            try
+            {
+                var psi = new ProcessStartInfo
+                {
+                    FileName = settings.ExePath,
+                    Arguments = settings.Args,
+                    WorkingDirectory = settings.WorkingDir,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    StandardOutputEncoding = System.Text.Encoding.UTF8,
+                    StandardErrorEncoding = System.Text.Encoding.UTF8
+                };
+                // 在继承的环境基础上叠加服务级环境变量，值中的 %VAR% 引用在此展开
+                EnvironmentVariables.Apply(psi.Environment, settings.Environment, Environment.ExpandEnvironmentVariables);
+
+                process = new Process { StartInfo = psi, EnableRaisingEvents = true };
+                process.OutputDataReceived += (s, e) => { if (e.Data != null) Log(LogLineKind.Stdout, e.Data); };
+                process.ErrorDataReceived += (s, e) => { if (e.Data != null) Log(LogLineKind.Stderr, e.Data); };
+                // 退出事件只使用本次启动的进程对象与代数：重启会替换 _process，停止流程会释放它
+                var started = process;
+                process.Exited += (s, e) => OnTargetExited(started, generation);
+
+                if (!process.Start())
+                    throw new InvalidOperationException("Process.Start() returned false.");
+
+                process.BeginOutputReadLine();
+                process.BeginErrorReadLine();
+
+                _process?.Dispose();
+                _process = process;
+                _machine!.ProcessStarted(generation);
+                _runtime?.ProcessStarted(process.Id, DateTime.Now);
+                return SupervisorDecision.None;
+            }
+            catch (Exception ex)
+            {
+                process?.Dispose();
+                LogSystem($"Failed to start: {ex.Message}");
+
+                bool fileNotFound = ex is System.ComponentModel.Win32Exception win32 &&
+                                    win32.NativeErrorCode is 2 or 3;
+                return _machine!.ProcessStartFailed(generation, fileNotFound, settings.ExePath, ex.Message, DateTime.Now);
             }
         }
 
-        private void LogSystem(string message)
+        private void OnTargetExited(Process process, int generation)
         {
-            _logger?.Log(LogLine.Format(LogLineKind.System, message, DateTime.Now));
+            int exitCode;
+            try
+            {
+                exitCode = process.ExitCode;
+            }
+            catch (InvalidOperationException)
+            {
+                // 进程对象已在停止流程中被释放
+                exitCode = -1;
+            }
+
+            // 先读完剩余输出，使日志中程序的最后几行出现在“进程退出”之前
+            ProcessOutput.Drain(process, ProcessOutput.DrainTimeout);
+
+            SupervisorDecision decision;
+            lock (_gate)
+            {
+                if (_machine == null) return;
+
+                // 停止期间的退出同样记录（如 Ctrl+C 后的退出码），但不再据此决定重启或停止
+                if (generation == _machine.Generation)
+                {
+                    LogSystem($"Process exited (code: {exitCode})");
+                    _runtime?.ProcessExited(exitCode, DateTime.Now);
+                }
+                if (_machine.IsStopping) return;
+
+                decision = _machine.ProcessExited(generation, exitCode, DateTime.Now);
+            }
+            Execute(decision);
         }
 
         /// <summary>
-        /// 创建本次运行的状态并写入状态文件。上次运行留下的“最近退出 / 失败原因”予以保留
-        /// （服务被 SCM 恢复策略重新拉起后仍可看到上一次为何停止），其余计数从零开始。
+        /// 执行状态机给出的动作（不持有 _gate：Stop() 会同步调用 OnStop）
         /// </summary>
-        private void InitRuntimeState()
+        private void Execute(SupervisorDecision decision)
         {
+            switch (decision.Action)
+            {
+                case SupervisorAction.StopService:
+                    LogSystem("Normal exit, not restarting");
+                    WaitUntilRunningReported();
+                    Stop();
+                    break;
+
+                case SupervisorAction.FailService:
+                    WaitUntilRunningReported();
+                    FailService(decision.ExitCode, decision.Reason!);
+                    break;
+
+                case SupervisorAction.ScheduleRestart:
+                    ScheduleRestart(decision);
+                    break;
+            }
+        }
+
+        private void ScheduleRestart(SupervisorDecision decision)
+        {
+            int scheduledBy;
+            lock (_gate)
+            {
+                var machine = _machine!;
+                scheduledBy = machine.Generation;
+                _runtime?.Restarts(machine.RestartCount, machine.TotalRestarts);
+                var limit = machine.MaxRestarts > 0 ? machine.MaxRestarts.ToString() : "unlimited";
+                LogSystem($"{decision.Reason} {decision.Attempt}/{limit} in {(long)decision.Delay.TotalMilliseconds}ms");
+            }
+
+            Task.Delay(decision.Delay, _stopCts.Token).ContinueWith(t =>
+            {
+                if (t.IsCanceled) return;
+
+                SupervisorDecision next;
+                lock (_gate)
+                {
+                    if (!_machine!.TryBeginRestart(scheduledBy, out var generation)) return;
+                    next = StartTargetLocked(generation);
+                }
+                Execute(next);
+            }, TaskScheduler.Default);
+        }
+
+        /// <summary>
+        /// 目标程序在服务启动阶段就退出时，等 ServiceBase 向 SCM 报告“运行中”之后再停止服务：
+        /// ServiceBase 在 OnStart 返回后（另一线程上）才报告“运行中”，在此之前调用 Stop() 报告的“已停止”会被覆盖。
+        /// </summary>
+        private void WaitUntilRunningReported()
+        {
+            _startCompleted.Wait(TimeSpan.FromSeconds(30));
             try
             {
-                _stateStore = new ServiceStateStore();
-                var previous = _stateStore.Read(_serviceName);
-                var now = DateTime.Now;
-                lock (_stateLock)
+                using var controller = new ServiceController(_serviceId);
+                var deadline = DateTime.UtcNow.AddSeconds(5);
+                while (controller.Status == ServiceControllerStatus.StartPending && DateTime.UtcNow < deadline)
                 {
-                    _state = new ServiceRuntimeState
+                    Thread.Sleep(50);
+                    controller.Refresh();
+                }
+            }
+            catch
+            {
+                // 低权限账户可能无权查询服务状态，直接继续
+            }
+        }
+
+        #endregion
+
+        #region 停止
+
+        private void StopTarget(int timeoutSeconds, Action requestAdditionalTime)
+        {
+            Process? process;
+            lock (_gate)
+            {
+                // 停止流程只执行一次；_machine 为 null 表示启动阶段已失败，只需清理
+                if (_machine != null && !_machine.BeginStop()) return;
+                process = _process;
+                _process = null;
+            }
+            _stopCts.Cancel();
+
+            if (process != null)
+            {
+                try
+                {
+                    if (!process.HasExited)
                     {
-                        ServiceId = _serviceName,
-                        WrapperPid = Environment.ProcessId,
-                        WrapperStartedAt = now,
-                        LastExitCode = previous?.LastExitCode,
-                        LastExitAt = previous?.LastExitAt,
-                        LastFailureReason = previous?.LastFailureReason,
-                        UpdatedAt = now
-                    };
-                    _stateStore.Write(_state);
+                        var settings = _settings!;
+                        new TargetStopper(settings.Stop, settings.ExePath, settings.WorkingDir, LogSystem, requestAdditionalTime)
+                            .Stop(process, timeoutSeconds);
+                    }
+                    ProcessOutput.Drain(process, ProcessOutput.DrainTimeout);
                 }
+                catch (Exception ex)
+                {
+                    LogSystem($"Error stopping process: {ex.Message}");
+                }
+                process.Dispose();
             }
-            catch { }
+
+            _runtime?.ProcessGone();
+            lock (_gate)
+            {
+                _machine?.Stopped();
+            }
+
+            _logger?.Dispose();
+            _logger = null;
         }
 
         /// <summary>
-        /// 更新并写入运行状态。任何失败都被忽略，绝不影响服务运行。
+        /// 以失败状态停止服务：记录日志与 Windows 事件日志，并向 SCM 报告非 0 退出码。
+        /// 启用自动重启的服务会因此触发 SCM 恢复策略，稍后由 SCM 重新拉起。
         /// </summary>
-        private void UpdateRuntimeState(Action<ServiceRuntimeState> update)
+        private void FailService(int exitCode, string reason)
         {
+            RecordFailure(exitCode, reason);
+            ExitCode = exitCode;
+            Stop();
+        }
+
+        /// <summary>
+        /// OnStart 期间的失败：记录原因、清理，并抛出异常让 ServiceBase 以失败状态结束启动（报告 ExitCode）
+        /// </summary>
+        private void FailDuringStart(int exitCode, string reason)
+        {
+            RecordFailure(exitCode, reason);
+            ExitCode = exitCode;
+            StopTarget(0, () => { });
+            throw new ServiceStartFailedException(reason);
+        }
+
+        private void RecordFailure(int exitCode, string reason)
+        {
+            LogSystem($"Service failed: {reason} (exit code {exitCode})");
             try
             {
-                lock (_stateLock)
-                {
-                    if (_state == null || _stateStore == null) return;
-                    update(_state);
-                    _state.UpdatedAt = DateTime.Now;
-                    _stateStore.Write(_state);
-                }
+                EventLog.WriteEntry($"{_serviceId}: {reason}", EventLogEntryType.Error);
             }
             catch { }
+            _runtime?.Failed(reason);
         }
+
+        #endregion
+
+        #region 环境
+
+        private void Log(LogLineKind kind, string text)
+        {
+            _logger?.Log(LogLine.Format(kind, text, DateTime.Now));
+        }
+
+        private void LogSystem(string message) => Log(LogLineKind.System, message);
 
         private void InitLogger()
         {
-            var logDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "windows_service_logs");
+            var logDir = new LogManager().GetLogDirectory();
             Directory.CreateDirectory(logDir);
-            var logFile = Path.Combine(logDir, $"{_serviceName}_{DateTime.Now:yyyyMMdd_HHmmss}.log");
+            var logFile = Path.Combine(logDir, $"{_serviceId}_{DateTime.Now:yyyyMMdd_HHmmss}.log");
             _logger = new AsyncLogger(logFile);
         }
 
@@ -141,7 +378,7 @@ namespace Services.Core.Services
         /// 服务启动时按全局设置清理一次日志（GUI 未运行时也能生效）。
         /// 在后台执行且吞掉所有异常，不影响服务启动；正在写入的日志文件无法删除，会被自动跳过。
         /// </summary>
-        private void CleanupLogsInBackground()
+        private static void CleanupLogsInBackground()
         {
             Task.Run(() =>
             {
@@ -170,405 +407,39 @@ namespace Services.Core.Services
             }
         }
 
+        /// <summary>
+        /// 使“非 0 退出也触发 SCM 恢复策略”与自动重启设置一致，让旧版本创建的服务无需编辑即可生效。
+        /// 低权限运行账户无权修改服务配置，失败时忽略（创建 / 编辑服务时已由管理端设置）。
+        /// </summary>
+        private void SyncFailureActionsFlag(bool autoRestart)
+        {
+            try
+            {
+                ServiceUtils.SetFailureActionsOnNonCrashFailures(_serviceId, autoRestart);
+            }
+            catch { }
+        }
+
         private void LogCriticalError(Exception ex)
         {
             try
             {
-                var logDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "windows_service_logs");
+                var logDir = new LogManager().GetLogDirectory();
                 Directory.CreateDirectory(logDir);
-                var logFile = Path.Combine(logDir, $"{_serviceName}_CRASH_{DateTime.Now:yyyyMMdd_HHmmss}.log");
+                var logFile = Path.Combine(logDir, $"{_serviceId}_CRASH_{DateTime.Now:yyyyMMdd_HHmmss}.log");
                 File.WriteAllText(logFile, $"Service Startup Failed:\n{ex}");
             }
             catch { }
         }
 
-        protected override void OnStop()
-        {
-            StopTarget(_stopTimeoutSeconds, requestAdditionalTime: true);
-        }
+        #endregion
+    }
 
-        protected override void OnShutdown()
-        {
-            StopTarget(Math.Min(_stopTimeoutSeconds, ShutdownStopTimeoutSeconds), requestAdditionalTime: false);
-        }
-
-        private void StopTarget(int timeoutSeconds, bool requestAdditionalTime)
-        {
-            if (_stopCompleted) return;
-            _stopCompleted = true;
-            _isStopping = true;
-
-            if (_process != null && !_process.HasExited)
-            {
-                try
-                {
-                    StopTargetProcess(_process, timeoutSeconds, requestAdditionalTime);
-                }
-                catch (Exception ex)
-                {
-                    LogSystem($"Error stopping process: {ex.Message}");
-                }
-            }
-
-            _process?.Dispose();
-            _process = null;
-
-            UpdateRuntimeState(s =>
-            {
-                s.ProcessPid = null;
-                s.ProcessStartedAt = null;
-            });
-
-            _logger?.Dispose();
-            _logger = null;
-        }
-
-        /// <summary>
-        /// 按停止方式请求目标程序自行退出，超时（或请求失败）后结束整个进程树
-        /// </summary>
-        private void StopTargetProcess(Process process, int timeoutSeconds, bool requestAdditionalTime)
-        {
-            if (_stopMode != ServiceStopMode.Kill)
-            {
-                var deadline = DateTime.UtcNow.AddSeconds(timeoutSeconds);
-                bool requested = _stopMode == ServiceStopMode.CtrlC
-                    ? RequestStopByCtrlC(process)
-                    : RequestStopByCommand(process, deadline, requestAdditionalTime);
-
-                if (requested && WaitForExit(process, deadline, requestAdditionalTime))
-                {
-                    LogSystem("Process exited gracefully");
-                    return;
-                }
-
-                LogSystem(requested
-                    ? $"Process did not exit within {timeoutSeconds}s, killing process tree"
-                    : "Graceful stop request failed, killing process tree");
-            }
-
-            process.Kill(true);
-            process.WaitForExit(5000);
-        }
-
-        private bool RequestStopByCtrlC(Process process)
-        {
-            LogSystem("Sending Ctrl+C to process");
-            if (ConsoleControl.SendCtrlC(process.Id)) return true;
-
-            LogSystem("Failed to send Ctrl+C (the process may not have a console)");
-            return false;
-        }
-
-        /// <summary>
-        /// 通过 cmd.exe 在服务工作目录中执行停止命令，输出写入日志。命令本身的执行也计入超时。
-        /// 命令无法启动时返回 false；命令返回非 0 时仅记录，仍等待目标程序退出。
-        /// </summary>
-        private bool RequestStopByCommand(Process process, DateTime deadline, bool requestAdditionalTime)
-        {
-            var workingDir = GetWorkingDirectory(_config);
-            var command = StopCommandLine.Expand(_stopCommand, _config.ExePath, workingDir, process.Id);
-            LogSystem($"Running stop command: {command}");
-
-            try
-            {
-                using var stopProcess = new Process
-                {
-                    StartInfo = new ProcessStartInfo
-                    {
-                        FileName = Path.Combine(Environment.SystemDirectory, "cmd.exe"),
-                        Arguments = StopCommandLine.ToCmdArguments(command),
-                        WorkingDirectory = workingDir,
-                        UseShellExecute = false,
-                        CreateNoWindow = true,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true,
-                        StandardOutputEncoding = System.Text.Encoding.UTF8,
-                        StandardErrorEncoding = System.Text.Encoding.UTF8
-                    }
-                };
-                stopProcess.OutputDataReceived += (s, e) => { if (e.Data != null) LogSystem($"[stop] {e.Data}"); };
-                stopProcess.ErrorDataReceived += (s, e) => { if (e.Data != null) LogSystem($"[stop] {e.Data}"); };
-                stopProcess.Start();
-                stopProcess.BeginOutputReadLine();
-                stopProcess.BeginErrorReadLine();
-
-                if (WaitForExit(stopProcess, deadline, requestAdditionalTime))
-                {
-                    if (stopProcess.ExitCode != 0)
-                        LogSystem($"Stop command exited with code {stopProcess.ExitCode}");
-                }
-                else
-                {
-                    LogSystem("Stop command did not finish in time");
-                    try { stopProcess.Kill(true); } catch { }
-                }
-                return true;
-            }
-            catch (Exception ex)
-            {
-                LogSystem($"Failed to run stop command: {ex.Message}");
-                return false;
-            }
-        }
-
-        /// <summary>
-        /// 等待进程退出直到截止时间；等待期间定期向 SCM 申请延长停止时间，避免被判定为停止超时
-        /// </summary>
-        private bool WaitForExit(Process process, DateTime deadline, bool requestAdditionalTime)
-        {
-            while (true)
-            {
-                var remaining = deadline - DateTime.UtcNow;
-                if (remaining <= TimeSpan.Zero) return process.HasExited;
-
-                if (requestAdditionalTime)
-                {
-                    try { RequestAdditionalTime(5000); } catch { }
-                }
-
-                var slice = (int)Math.Min(remaining.TotalMilliseconds, 2000);
-                if (process.WaitForExit(Math.Max(slice, 1))) return true;
-            }
-        }
-
-        private static string GetWorkingDirectory((string ExePath, string Args, string WorkingDir) config) =>
-            string.IsNullOrEmpty(config.WorkingDir) ? (Path.GetDirectoryName(config.ExePath) ?? "") : config.WorkingDir;
-
-        private void LoadStopPolicy()
-        {
-            try
-            {
-                using var key = Registry.LocalMachine.OpenSubKey($@"SYSTEM\CurrentControlSet\Services\{_serviceName}\Parameters");
-                if (key == null) return;
-
-                if (key.GetValue("StopMode") is int mode && Enum.IsDefined(typeof(ServiceStopMode), mode))
-                    _stopMode = (ServiceStopMode)mode;
-                _stopCommand = key.GetValue("StopCommand") as string ?? "";
-                if (key.GetValue("StopTimeoutSeconds") is int timeout && timeout > 0)
-                    _stopTimeoutSeconds = Math.Min(timeout, StopPolicyDefaults.MaxTimeoutSeconds);
-
-                // 停止命令为空时无法执行，退回直接结束
-                if (_stopMode == ServiceStopMode.Command && string.IsNullOrWhiteSpace(_stopCommand))
-                    _stopMode = ServiceStopMode.Kill;
-            }
-            catch { }
-        }
-
-        private void LoadEnvironment()
-        {
-            try
-            {
-                using var key = Registry.LocalMachine.OpenSubKey($@"SYSTEM\CurrentControlSet\Services\{_serviceName}\Parameters");
-                _environment = EnvironmentVariables.ParseLenient(key?.GetValue("Environment") as string[]);
-            }
-            catch { }
-        }
-
-        private (string ExePath, string Args, string WorkingDir) LoadConfig()
-        {
-            using var key = Registry.LocalMachine.OpenSubKey($@"SYSTEM\CurrentControlSet\Services\{_serviceName}\Parameters");
-            if (key == null) throw new Exception("Service configuration not found in registry");
-
-            var exePath = key.GetValue("ExePath") as string;
-            var args = key.GetValue("Args") as string;
-            var workingDir = key.GetValue("WorkingDir") as string;
-
-            if (string.IsNullOrEmpty(exePath)) throw new Exception("ExePath is missing in registry");
-
-            return (exePath, ServiceUtils.NormalizeArgs(args), workingDir ?? "");
-        }
-
-        private void LoadRestartPolicy()
-        {
-            try
-            {
-                using var key = Registry.LocalMachine.OpenSubKey($@"SYSTEM\CurrentControlSet\Services\{_serviceName}\Parameters");
-                if (key == null) return;
-
-                _autoRestart = key.GetValue("AutoRestart") is int v && v == 1;
-                if (key.GetValue("RestartDelaySeconds") is int delay && delay > 0)
-                    _restartDelayMs = Math.Min(delay, 3600) * 1000;
-                if (key.GetValue("MaxRestarts") is int max && max >= 0)
-                    _maxRestarts = max;
-                if (key.GetValue("RestartResetMinutes") is int reset && reset > 0)
-                    _restartResetMinutes = reset;
-                if (key.GetValue("RestartBackoff") is int backoff)
-                    _restartBackoff = backoff == 1;
-            }
-            catch { }
-        }
-
-        /// <summary>
-        /// 使“非 0 退出也触发 SCM 恢复策略”与自动重启设置一致，让旧版本创建的服务无需编辑即可生效。
-        /// 低权限运行账户无权修改服务配置，失败时忽略（创建 / 编辑服务时已由管理端设置）。
-        /// </summary>
-        private void SyncFailureActionsFlag()
-        {
-            try
-            {
-                ServiceUtils.SetFailureActionsOnNonCrashFailures(_serviceName, _autoRestart);
-            }
-            catch { }
-        }
-
-        /// <summary>
-        /// 以失败状态停止服务：记录日志与 Windows 事件日志，并向 SCM 报告非 0 退出码。
-        /// 启用自动重启的服务会因此触发 SCM 恢复策略，稍后由 SCM 重新拉起。
-        /// </summary>
-        private void FailService(int exitCode, string reason)
-        {
-            LogSystem($"Service failed: {reason} (exit code {exitCode})");
-            try
-            {
-                EventLog.WriteEntry($"{_serviceName}: {reason}", EventLogEntryType.Error);
-            }
-            catch { }
-
-            UpdateRuntimeState(s => s.LastFailureReason = reason);
-            ExitCode = exitCode;
-            Stop();
-        }
-
-        /// <summary>
-        /// 按重启策略安排下一次重启。超过最大重启次数时返回 false。
-        /// </summary>
-        private bool TryScheduleRestart((string ExePath, string Args, string WorkingDir) config, string action)
-        {
-            if ((DateTime.Now - _lastRestartTime).TotalMinutes > _restartResetMinutes)
-                _restartCount = 0;
-
-            _restartCount++;
-            if (_maxRestarts > 0 && _restartCount > _maxRestarts)
-            {
-                LogSystem($"Max restarts ({_maxRestarts}) exceeded.");
-                return false;
-            }
-
-            int delay = _restartBackoff ? _restartDelayMs << Math.Min(_restartCount - 1, 4) : _restartDelayMs;
-            _lastRestartTime = DateTime.Now;
-
-            UpdateRuntimeState(s =>
-            {
-                s.RestartCount = _restartCount;
-                s.TotalRestarts++;
-            });
-
-            var limit = _maxRestarts > 0 ? _maxRestarts.ToString() : "unlimited";
-            LogSystem($"{action} {_restartCount}/{limit} in {delay}ms");
-            Task.Delay(delay).ContinueWith(_ =>
-            {
-                if (!_isStopping) StartTargetProcess(config);
-            });
-            return true;
-        }
-
-        private void StartTargetProcess((string ExePath, string Args, string WorkingDir) config)
-        {
-            try
-            {
-                _process?.Dispose();
-
-                var psi = new ProcessStartInfo
-                {
-                    FileName = config.ExePath,
-                    Arguments = config.Args,
-                    WorkingDirectory = GetWorkingDirectory(config),
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    StandardOutputEncoding = System.Text.Encoding.UTF8,
-                    StandardErrorEncoding = System.Text.Encoding.UTF8
-                };
-                // 在继承的环境基础上叠加服务级环境变量，值中的 %VAR% 引用在此展开
-                EnvironmentVariables.Apply(psi.Environment, _environment, Environment.ExpandEnvironmentVariables);
-
-                _process = new Process { StartInfo = psi };
-
-                _process.OutputDataReceived += (s, e) => { if (e.Data != null) _logger?.Log(LogLine.Format(LogLineKind.Stdout, e.Data, DateTime.Now)); };
-                _process.ErrorDataReceived += (s, e) => { if (e.Data != null) _logger?.Log(LogLine.Format(LogLineKind.Stderr, e.Data, DateTime.Now)); };
-
-                if (!_process.Start())
-                {
-                    throw new Exception("Process.Start() returned false.");
-                }
-
-                _process.BeginOutputReadLine();
-                _process.BeginErrorReadLine();
-
-                // 先记录启动再启用退出事件，保证状态中“启动”早于“退出”
-                var startedPid = _process.Id;
-                var startedAt = DateTime.Now;
-                UpdateRuntimeState(s =>
-                {
-                    s.ProcessPid = startedPid;
-                    s.ProcessStartedAt = startedAt;
-                });
-
-                // 事件处理中只使用本次启动的进程对象：停止流程会把 _process 置空并释放，重启会替换为新进程。
-                // 在事件处理中访问 _process 可能抛出异常，未处理的异常会使包装器崩溃，被 SCM 视为故障而重新拉起刚停止的服务。
-                var process = _process;
-                process.EnableRaisingEvents = true;
-                process.Exited += (s, e) =>
-                {
-                    int exitCode;
-                    try
-                    {
-                        exitCode = process.ExitCode;
-                    }
-                    catch (InvalidOperationException)
-                    {
-                        // 进程对象已在停止流程中被释放
-                        exitCode = -1;
-                    }
-                    LogSystem($"Process exited (code: {exitCode})");
-                    UpdateRuntimeState(state =>
-                    {
-                        state.ProcessPid = null;
-                        state.ProcessStartedAt = null;
-                        state.LastExitCode = exitCode;
-                        state.LastExitAt = DateTime.Now;
-                    });
-
-                    if (_isStopping) return;
-
-                    if (exitCode == 0)
-                    {
-                        LogSystem("Normal exit, not restarting");
-                        Stop();
-                        return;
-                    }
-
-                    if (!_autoRestart)
-                    {
-                        FailService(ERROR_PROCESS_ABORTED, $"Process exited with code {exitCode} (AutoRestart disabled)");
-                        return;
-                    }
-
-                    if (!TryScheduleRestart(config, "Restart"))
-                    {
-                        FailService(ERROR_PROCESS_ABORTED, $"Process kept failing, gave up after {_maxRestarts} restarts (last exit code {exitCode})");
-                    }
-                };
-            }
-            catch (Exception ex)
-            {
-                LogSystem($"Failed to start: {ex.Message}");
-
-                // 处理文件不存在错误
-                if (ex is System.ComponentModel.Win32Exception win32Ex && 
-                    (win32Ex.NativeErrorCode == 2 || win32Ex.NativeErrorCode == 3))
-                {
-                    FailService(ERROR_FILE_NOT_FOUND, $"Executable not found: {config.ExePath}");
-                    return;
-                }
-
-                // 重试由 Task 续延调用，异常会被吞掉导致服务停留在“运行中”却没有进程，因此不再抛出，统一以失败状态停止
-                if (!_autoRestart || !TryScheduleRestart(config, "Retry"))
-                {
-                    FailService(ERROR_PROCESS_ABORTED, $"Failed to start process: {ex.Message}");
-                }
-            }
-        }
+    /// <summary>
+    /// 服务启动失败（原因已写入日志与运行状态）。由 ServiceBase.Run 重新抛出，入口程序据此以非 0 退出。
+    /// </summary>
+    public sealed class ServiceStartFailedException : Exception
+    {
+        public ServiceStartFailedException(string message) : base(message) { }
     }
 }

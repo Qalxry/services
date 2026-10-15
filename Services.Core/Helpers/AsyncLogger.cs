@@ -14,6 +14,7 @@ namespace Services.Core.Helpers
         private readonly Task _writeTask;
         private bool _disposed;
         private const long MaxLogFileSize = 50 * 1024 * 1024;  // 50 MB
+        private static readonly TimeSpan DrainTimeout = TimeSpan.FromSeconds(3);
 
         public AsyncLogger(string logPath)
         {
@@ -31,6 +32,7 @@ namespace Services.Core.Helpers
                 }
                 catch (InvalidOperationException)
                 {
+                    // 已调用 CompleteAdding 或已释放（与 Dispose 并发），丢弃
                 }
             }
         }
@@ -89,11 +91,13 @@ namespace Services.Core.Helpers
             if (_disposed) return;
             
             _disposed = true;
-            _cts.Cancel();
+            // 先停止接收并写完队列中已有的日志；超时后才取消（如磁盘异常导致写入阻塞）
             _logQueue.CompleteAdding();
             
             try
             {
+                if (await Task.WhenAny(_writeTask, Task.Delay(DrainTimeout)).ConfigureAwait(false) != _writeTask)
+                    _cts.Cancel();
                 await _writeTask.ConfigureAwait(false);
             }
             catch (OperationCanceledException)
@@ -113,12 +117,16 @@ namespace Services.Core.Helpers
             if (_disposed) return;
             
             _disposed = true;
-            _cts.Cancel();
+            // 先停止接收并写完队列中已有的日志；超时后才取消（如磁盘异常导致写入阻塞）
             _logQueue.CompleteAdding();
             
             try
             {
-                _writeTask.Wait(TimeSpan.FromSeconds(2));
+                if (!_writeTask.Wait(DrainTimeout))
+                {
+                    _cts.Cancel();
+                    _writeTask.Wait(TimeSpan.FromSeconds(1));
+                }
             }
             catch (Exception ex)
             {

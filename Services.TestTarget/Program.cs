@@ -11,7 +11,8 @@ namespace Services.TestTarget
     ///   --print-user             输出 "user &lt;域\用户&gt;"
     ///   --print-cwd              输出 "cwd &lt;当前目录&gt;"
     ///   --spawn-child &lt;file&gt;     派生一个一直运行的子进程，将其 PID 写入文件
-    ///   --ctrlc-file &lt;file&gt;      收到 Ctrl+C 时写入 "ctrlc" 并以 0 退出
+    ///   --ctrlc-file &lt;file&gt;      收到 Ctrl+C 时写入 "ctrlc" 并退出（退出码由 --ctrlc-exit 指定，默认 0）
+    ///   --ctrlc-exit &lt;code&gt;
     ///   --ignore-ctrlc           忽略 Ctrl+C
     ///   --quit-file &lt;file&gt;       该文件出现时以 0 退出（模拟 nginx -s quit 之类的停止命令）
     ///   --exit &lt;code&gt;            输出完毕后（等待 --delay 毫秒）以指定退出码退出；不指定则一直运行
@@ -63,7 +64,7 @@ namespace Services.TestTarget
                     }
                     File.WriteAllText(options.CtrlCFile!, "ctrlc");
                     Console.Out.WriteLine("ctrl-c received");
-                    exitCode = 0;
+                    exitCode = options.CtrlCExit;
                     exit.Set();
                 };
             }
@@ -115,6 +116,7 @@ namespace Services.TestTarget
             public bool PrintCwd;
             public string? SpawnChild;
             public string? CtrlCFile;
+            public int CtrlCExit;
             public bool IgnoreCtrlC;
             public string? QuitFile;
             public int? Exit;
@@ -138,6 +140,7 @@ namespace Services.TestTarget
                         case "--print-cwd": o.PrintCwd = true; break;
                         case "--spawn-child": o.SpawnChild = Next(); break;
                         case "--ctrlc-file": o.CtrlCFile = Next(); break;
+                        case "--ctrlc-exit": o.CtrlCExit = int.Parse(Next()); break;
                         case "--ignore-ctrlc": o.IgnoreCtrlC = true; break;
                         case "--quit-file": o.QuitFile = Next(); break;
                         case "--exit": o.Exit = int.Parse(Next()); break;

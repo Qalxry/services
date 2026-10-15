@@ -25,7 +25,15 @@ namespace Services.Wrapper
             if (!string.IsNullOrEmpty(dir)) Directory.SetCurrentDirectory(dir);
 
             using var wrapper = new EmbeddedServiceWrapper(args[1]);
-            ServiceBase.Run(wrapper);
+            try
+            {
+                ServiceBase.Run(wrapper);
+            }
+            catch (ServiceStartFailedException)
+            {
+                // 原因已写入服务日志、运行状态与事件日志，退出码已报告给 SCM
+                return 1;
+            }
             return 0;
         }
     }

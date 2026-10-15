@@ -36,7 +36,14 @@ namespace ServicesApp
 
                 var serviceName = args[1];
                 using var wrapper = new EmbeddedServiceWrapper(serviceName);
-                ServiceBase.Run(wrapper);
+                try
+                {
+                    ServiceBase.Run(wrapper);
+                }
+                catch (ServiceStartFailedException)
+                {
+                    // 原因已写入服务日志、运行状态与事件日志，退出码已报告给 SCM
+                }
                 return;
             }
 
