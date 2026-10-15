@@ -17,7 +17,8 @@ namespace Services.Cli
         private const int DefaultLogTail = 200;
 
         private static readonly string[] ConfigValueOptions =
-            { "exe", "workdir", "args", "description", "startup", "restart-delay", "max-restarts", "restart-reset" };
+            { "exe", "workdir", "args", "description", "startup", "restart-delay", "max-restarts", "restart-reset",
+              "stop-mode", "stop-command", "stop-timeout" };
 
         private static readonly string[] ConfigFlagOptions =
             { "auto-restart", "no-auto-restart", "backoff", "no-backoff" };
@@ -425,6 +426,30 @@ namespace Services.Cli
                 config.RestartBackoff = backoff;
                 changed++;
             }
+            if (args.GetValue("stop-mode") is { } stopMode)
+            {
+                config.StopMode = stopMode.ToLowerInvariant() switch
+                {
+                    "kill" => ServiceStopMode.Kill,
+                    "ctrl-c" => ServiceStopMode.CtrlC,
+                    "command" => ServiceStopMode.Command,
+                    _ => throw new UsageException($"--stop-mode 只能是 kill、ctrl-c 或 command，实际为 '{stopMode}'。", args.Command)
+                };
+                changed++;
+            }
+            if (args.GetValue("stop-command") is { } stopCommand)
+            {
+                config.StopCommand = stopCommand.Trim();
+                changed++;
+            }
+            if (args.GetInt("stop-timeout", 1, StopPolicyDefaults.MaxTimeoutSeconds) is { } stopTimeout)
+            {
+                config.StopTimeoutSeconds = stopTimeout;
+                changed++;
+            }
+
+            if (config.StopMode == ServiceStopMode.Command && string.IsNullOrWhiteSpace(config.StopCommand))
+                throw new UsageException("--stop-mode command 需要同时指定 --stop-command。", args.Command);
 
             if (config.ExePath.Length > 0 && !File.Exists(config.ExePath))
                 throw new UsageException($"可执行文件不存在: {config.ExePath}", args.Command);
@@ -554,10 +579,23 @@ namespace Services.Cli
                     ResetMinutes = s.RestartResetMinutes,
                     Backoff = s.RestartBackoff
                 },
+                StopPolicy = new StopPolicyInfo
+                {
+                    Mode = ToStopModeText(s.StopMode),
+                    Command = string.IsNullOrEmpty(s.StopCommand) ? null : s.StopCommand,
+                    TimeoutSeconds = s.StopTimeoutSeconds
+                },
                 CreatedAt = s.CreatedAt,
                 LatestLogPath = logManager.GetLatestLogPath(s.Id)
             };
         }
+
+        private static string ToStopModeText(ServiceStopMode mode) => mode switch
+        {
+            ServiceStopMode.CtrlC => "ctrl-c",
+            ServiceStopMode.Command => "command",
+            _ => "kill"
+        };
 
         private static string ToStartupText(ServiceStartupType type) => type switch
         {
@@ -574,6 +612,13 @@ namespace Services.Cli
                 ? $"已启用（延迟 {policy.DelaySeconds} 秒，{(policy.MaxRestarts > 0 ? $"最多 {policy.MaxRestarts} 次" : "不限次数")}，" +
                   $"{policy.ResetMinutes} 分钟后重置计数{(policy.Backoff ? "，指数退避" : "")}）"
                 : "未启用";
+            var stop = info.StopPolicy;
+            var stopText = stop.Mode switch
+            {
+                "ctrl-c" => $"发送 Ctrl+C（{stop.TimeoutSeconds} 秒未退出则强制结束）",
+                "command" => $"执行停止命令: {stop.Command}（{stop.TimeoutSeconds} 秒未退出则强制结束）",
+                _ => "直接结束进程"
+            };
 
             var rows = new (string Label, string? Value)[]
             {
@@ -583,6 +628,7 @@ namespace Services.Cli
                 ("状态", info.Pid is { } pid ? $"{info.StatusText} (PID {pid})" : info.StatusText),
                 ("启动类型", info.StartupType),
                 ("失败自动重启", restartText),
+                ("停止方式", stopText),
                 ("程序路径", info.ExePath),
                 ("工作目录", info.WorkingDir),
                 ("启动参数", info.CommandLineArgs),

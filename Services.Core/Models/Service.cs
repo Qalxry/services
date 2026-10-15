@@ -94,6 +94,10 @@ namespace Services.Core.Models
         public int RestartResetMinutes { get; set; } = RestartPolicyDefaults.ResetMinutes;
         public bool RestartBackoff { get; set; } = RestartPolicyDefaults.Backoff;
 
+        public ServiceStopMode StopMode { get; set; } = ServiceStopMode.Kill;
+        public string? StopCommand { get; set; }
+        public int StopTimeoutSeconds { get; set; } = StopPolicyDefaults.TimeoutSeconds;
+
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }
 
@@ -115,6 +119,9 @@ namespace Services.Core.Models
             MaxRestarts = other.MaxRestarts;
             RestartResetMinutes = other.RestartResetMinutes;
             RestartBackoff = other.RestartBackoff;
+            StopMode = other.StopMode;
+            StopCommand = other.StopCommand;
+            StopTimeoutSeconds = other.StopTimeoutSeconds;
             CreatedAt = other.CreatedAt;
             UpdatedAt = other.UpdatedAt;
         }
@@ -146,6 +153,9 @@ namespace Services.Core.Models
         public int MaxRestarts { get; set; } = RestartPolicyDefaults.MaxRestarts;
         public int RestartResetMinutes { get; set; } = RestartPolicyDefaults.ResetMinutes;
         public bool RestartBackoff { get; set; } = RestartPolicyDefaults.Backoff;
+        public ServiceStopMode StopMode { get; set; } = ServiceStopMode.Kill;
+        public string? StopCommand { get; set; }
+        public int StopTimeoutSeconds { get; set; } = StopPolicyDefaults.TimeoutSeconds;
         public ServiceStartupType StartupType { get; set; } = ServiceStartupType.Auto;
 
         /// <summary>
@@ -165,6 +175,9 @@ namespace Services.Core.Models
                 MaxRestarts = service.MaxRestarts,
                 RestartResetMinutes = service.RestartResetMinutes,
                 RestartBackoff = service.RestartBackoff,
+                StopMode = service.StopMode,
+                StopCommand = service.StopCommand,
+                StopTimeoutSeconds = service.StopTimeoutSeconds,
                 StartupType = service.StartupType
             };
         }
@@ -183,6 +196,26 @@ namespace Services.Core.Models
         public const int ResetMinutes = 10;
         /// <summary>是否启用指数退避（每次重启延迟翻倍，最多 16 倍）</summary>
         public const bool Backoff = true;
+    }
+
+    /// <summary>
+    /// 停止服务时结束目标程序的方式
+    /// </summary>
+    public enum ServiceStopMode
+    {
+        /// <summary>直接结束进程树（默认，与旧版本一致）</summary>
+        Kill = 0,
+        /// <summary>向目标程序的控制台发送 Ctrl+C，超时后结束进程树</summary>
+        CtrlC = 1,
+        /// <summary>执行自定义停止命令（如 nginx -s quit），超时后结束进程树</summary>
+        Command = 2
+    }
+
+    public static class StopPolicyDefaults
+    {
+        /// <summary>优雅停止的最长等待时间（秒），超时后强制结束进程树</summary>
+        public const int TimeoutSeconds = 30;
+        public const int MaxTimeoutSeconds = 3600;
     }
 
     public enum ServiceStartupType

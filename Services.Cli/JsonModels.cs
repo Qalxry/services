@@ -23,6 +23,7 @@ namespace Services.Cli
         public string? WorkingDir { get; set; }
         public bool AutoRestart { get; set; }
         public RestartPolicyInfo RestartPolicy { get; set; } = new();
+        public StopPolicyInfo StopPolicy { get; set; } = new();
         public DateTime CreatedAt { get; set; }
         public string? LatestLogPath { get; set; }
     }
@@ -34,6 +35,14 @@ namespace Services.Cli
         public int MaxRestarts { get; set; }
         public int ResetMinutes { get; set; }
         public bool Backoff { get; set; }
+    }
+
+    internal sealed class StopPolicyInfo
+    {
+        /// <summary>kill / ctrl-c / command</summary>
+        public string Mode { get; set; } = "kill";
+        public string? Command { get; set; }
+        public int TimeoutSeconds { get; set; }
     }
 
     internal sealed class ActionResult

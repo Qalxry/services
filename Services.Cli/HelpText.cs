@@ -33,6 +33,14 @@ namespace Services.Cli
               --restart-reset <分>  距上次重启超过该分钟数则重新计数，1-1440，默认 10
               --backoff             启用指数退避（每次重启延迟翻倍，最多 16 倍），默认启用
               --no-backoff          关闭指数退避，每次使用固定延迟
+              --stop-mode <方式>    停止服务时结束程序的方式，默认 kill：
+                                      kill     直接结束进程树
+                                      ctrl-c   向程序控制台发送 Ctrl+C（Node / Python / Go 等），超时后强制结束
+                                      command  执行 --stop-command 指定的命令，超时后强制结束
+              --stop-command <命令> 停止命令，在工作目录中通过 cmd 执行。占位符：{exe} 程序路径、
+                                    {workdir} 工作目录（均自动加引号）、{pid} 进程 ID。
+                                    例：nginx 用 "{exe} -s quit"（若启动参数含 -p / -c，停止命令需带相同参数）
+              --stop-timeout <秒>   优雅停止的最长等待时间，1-3600，默认 30。系统关机时最多等待 4 秒
             """;
 
         public static string Overview(IEnumerable<CommandSpec> commands)
@@ -115,6 +123,7 @@ namespace Services.Cli
               workingDir        工作目录
               autoRestart       是否启用失败自动重启
               restartPolicy     { delaySeconds, maxRestarts (0=不限), resetMinutes, backoff }
+              stopPolicy        { mode (kill | ctrl-c | command), command, timeoutSeconds }
               createdAt         创建时间（ISO 8601）
               latestLogPath     最新日志文件路径，尚无日志时为 null
 
@@ -137,7 +146,7 @@ namespace Services.Cli
               --start               创建后立即启动并等待其进入运行状态（最多 30 秒）
 
             默认值:
-              启动类型 auto；不自动重启；重启策略 5 秒 / 5 次 / 10 分钟 / 指数退避。
+              启动类型 auto；不自动重启；重启策略 5 秒 / 5 次 / 10 分钟 / 指数退避；停止方式 kill。
 
             输出:
               成功后输出新服务的信息；--json 时输出 { ok, action, id, message, service }，
@@ -174,6 +183,7 @@ namespace Services.Cli
             示例:
               {{Tool}} update MyApp --args "--port 9090" --restart
               {{Tool}} update WinSvcMgr_MyApp_1a2b3c4d --startup manual --no-auto-restart
+              {{Tool}} update nginx --stop-mode command --stop-command "{exe} -s quit" --stop-timeout 60
             """;
 
         public const string Delete = $$"""

@@ -24,8 +24,16 @@ namespace Services.Core.Services
         private int _restartResetMinutes = RestartPolicyDefaults.ResetMinutes;
         private bool _restartBackoff = RestartPolicyDefaults.Backoff;
         private bool _isStopping = false;
+        private bool _stopCompleted = false;
+        private ServiceStopMode _stopMode = ServiceStopMode.Kill;
+        private string _stopCommand = "";
+        private int _stopTimeoutSeconds = StopPolicyDefaults.TimeoutSeconds;
+        private (string ExePath, string Args, string WorkingDir) _config;
         private int _restartCount = 0;
         private DateTime _lastRestartTime = DateTime.MinValue;
+
+        // 系统关机时 SCM 只给服务很短的时间（默认约 5 秒），优雅停止的等待上限
+        private const int ShutdownStopTimeoutSeconds = 4;
 
         // 服务以失败状态停止时报告给 SCM 的 Win32 退出码
         private const int ERROR_FILE_NOT_FOUND = 2;
@@ -35,6 +43,8 @@ namespace Services.Core.Services
         {
             _serviceName = serviceName;
             ServiceName = serviceName;
+            // 系统关机时同样尝试优雅停止目标程序
+            CanShutdown = true;
         }
 
         protected override void OnStart(string[] args)
@@ -42,7 +52,9 @@ namespace Services.Core.Services
             try
             {
                 var config = LoadConfig();
+                _config = config;
                 LoadRestartPolicy();
+                LoadStopPolicy();
                 SyncFailureActionsFlag();
 
                 InitLogger();
@@ -104,13 +116,25 @@ namespace Services.Core.Services
 
         protected override void OnStop()
         {
+            StopTarget(_stopTimeoutSeconds, requestAdditionalTime: true);
+        }
+
+        protected override void OnShutdown()
+        {
+            StopTarget(Math.Min(_stopTimeoutSeconds, ShutdownStopTimeoutSeconds), requestAdditionalTime: false);
+        }
+
+        private void StopTarget(int timeoutSeconds, bool requestAdditionalTime)
+        {
+            if (_stopCompleted) return;
+            _stopCompleted = true;
             _isStopping = true;
+
             if (_process != null && !_process.HasExited)
             {
                 try
                 {
-                    _process.Kill(true);
-                    _process.WaitForExit(5000);
+                    StopTargetProcess(_process, timeoutSeconds, requestAdditionalTime);
                 }
                 catch (Exception ex)
                 {
@@ -123,6 +147,137 @@ namespace Services.Core.Services
 
             _logger?.Dispose();
             _logger = null;
+        }
+
+        /// <summary>
+        /// 按停止方式请求目标程序自行退出，超时（或请求失败）后结束整个进程树
+        /// </summary>
+        private void StopTargetProcess(Process process, int timeoutSeconds, bool requestAdditionalTime)
+        {
+            if (_stopMode != ServiceStopMode.Kill)
+            {
+                var deadline = DateTime.UtcNow.AddSeconds(timeoutSeconds);
+                bool requested = _stopMode == ServiceStopMode.CtrlC
+                    ? RequestStopByCtrlC(process)
+                    : RequestStopByCommand(process, deadline, requestAdditionalTime);
+
+                if (requested && WaitForExit(process, deadline, requestAdditionalTime))
+                {
+                    LogSystem("Process exited gracefully");
+                    return;
+                }
+
+                LogSystem(requested
+                    ? $"Process did not exit within {timeoutSeconds}s, killing process tree"
+                    : "Graceful stop request failed, killing process tree");
+            }
+
+            process.Kill(true);
+            process.WaitForExit(5000);
+        }
+
+        private bool RequestStopByCtrlC(Process process)
+        {
+            LogSystem("Sending Ctrl+C to process");
+            if (ConsoleControl.SendCtrlC(process.Id)) return true;
+
+            LogSystem("Failed to send Ctrl+C (the process may not have a console)");
+            return false;
+        }
+
+        /// <summary>
+        /// 通过 cmd.exe 在服务工作目录中执行停止命令，输出写入日志。命令本身的执行也计入超时。
+        /// 命令无法启动时返回 false；命令返回非 0 时仅记录，仍等待目标程序退出。
+        /// </summary>
+        private bool RequestStopByCommand(Process process, DateTime deadline, bool requestAdditionalTime)
+        {
+            var workingDir = GetWorkingDirectory(_config);
+            var command = StopCommandLine.Expand(_stopCommand, _config.ExePath, workingDir, process.Id);
+            LogSystem($"Running stop command: {command}");
+
+            try
+            {
+                using var stopProcess = new Process
+                {
+                    StartInfo = new ProcessStartInfo
+                    {
+                        FileName = Path.Combine(Environment.SystemDirectory, "cmd.exe"),
+                        Arguments = StopCommandLine.ToCmdArguments(command),
+                        WorkingDirectory = workingDir,
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        StandardOutputEncoding = System.Text.Encoding.UTF8,
+                        StandardErrorEncoding = System.Text.Encoding.UTF8
+                    }
+                };
+                stopProcess.OutputDataReceived += (s, e) => { if (e.Data != null) LogSystem($"[stop] {e.Data}"); };
+                stopProcess.ErrorDataReceived += (s, e) => { if (e.Data != null) LogSystem($"[stop] {e.Data}"); };
+                stopProcess.Start();
+                stopProcess.BeginOutputReadLine();
+                stopProcess.BeginErrorReadLine();
+
+                if (WaitForExit(stopProcess, deadline, requestAdditionalTime))
+                {
+                    if (stopProcess.ExitCode != 0)
+                        LogSystem($"Stop command exited with code {stopProcess.ExitCode}");
+                }
+                else
+                {
+                    LogSystem("Stop command did not finish in time");
+                    try { stopProcess.Kill(true); } catch { }
+                }
+                return true;
+            }
+            catch (Exception ex)
+            {
+                LogSystem($"Failed to run stop command: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 等待进程退出直到截止时间；等待期间定期向 SCM 申请延长停止时间，避免被判定为停止超时
+        /// </summary>
+        private bool WaitForExit(Process process, DateTime deadline, bool requestAdditionalTime)
+        {
+            while (true)
+            {
+                var remaining = deadline - DateTime.UtcNow;
+                if (remaining <= TimeSpan.Zero) return process.HasExited;
+
+                if (requestAdditionalTime)
+                {
+                    try { RequestAdditionalTime(5000); } catch { }
+                }
+
+                var slice = (int)Math.Min(remaining.TotalMilliseconds, 2000);
+                if (process.WaitForExit(Math.Max(slice, 1))) return true;
+            }
+        }
+
+        private static string GetWorkingDirectory((string ExePath, string Args, string WorkingDir) config) =>
+            string.IsNullOrEmpty(config.WorkingDir) ? (Path.GetDirectoryName(config.ExePath) ?? "") : config.WorkingDir;
+
+        private void LoadStopPolicy()
+        {
+            try
+            {
+                using var key = Registry.LocalMachine.OpenSubKey($@"SYSTEM\CurrentControlSet\Services\{_serviceName}\Parameters");
+                if (key == null) return;
+
+                if (key.GetValue("StopMode") is int mode && Enum.IsDefined(typeof(ServiceStopMode), mode))
+                    _stopMode = (ServiceStopMode)mode;
+                _stopCommand = key.GetValue("StopCommand") as string ?? "";
+                if (key.GetValue("StopTimeoutSeconds") is int timeout && timeout > 0)
+                    _stopTimeoutSeconds = Math.Min(timeout, StopPolicyDefaults.MaxTimeoutSeconds);
+
+                // 停止命令为空时无法执行，退回直接结束
+                if (_stopMode == ServiceStopMode.Command && string.IsNullOrWhiteSpace(_stopCommand))
+                    _stopMode = ServiceStopMode.Kill;
+            }
+            catch { }
         }
 
         private (string ExePath, string Args, string WorkingDir) LoadConfig()
@@ -226,7 +381,7 @@ namespace Services.Core.Services
                 {
                     FileName = config.ExePath,
                     Arguments = config.Args,
-                    WorkingDirectory = string.IsNullOrEmpty(config.WorkingDir) ? (Path.GetDirectoryName(config.ExePath) ?? "") : config.WorkingDir,
+                    WorkingDirectory = GetWorkingDirectory(config),
                     UseShellExecute = false,
                     CreateNoWindow = true,
                     RedirectStandardOutput = true,

@@ -24,6 +24,9 @@ namespace ServicesApp
         private readonly NumberBox _restartResetBox;
         private readonly CheckBox _restartBackoffCheck;
         private readonly FrameworkElement _restartPolicyPanel;
+        private readonly ComboBox _stopModeBox;
+        private readonly NumberBox _stopTimeoutBox;
+        private readonly TextBox _stopCommandBox;
         private readonly TextBlock _errorText;
 
         public FrameworkElement View { get; }
@@ -137,6 +140,30 @@ namespace ServicesApp
             _autoRestartCheck.Checked += (s, e) => _restartPolicyPanel.Visibility = Visibility.Visible;
             _autoRestartCheck.Unchecked += (s, e) => _restartPolicyPanel.Visibility = Visibility.Collapsed;
 
+            // Stop mode | Stop timeout
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            _stopModeBox = new ComboBox { Header = "停止方式", HorizontalAlignment = HorizontalAlignment.Stretch };
+            _stopModeBox.Items.Add("直接结束进程");
+            _stopModeBox.Items.Add("发送 Ctrl+C（控制台程序）");
+            _stopModeBox.Items.Add("执行停止命令");
+            Grid.SetColumn(_stopModeBox, 0); Grid.SetRow(_stopModeBox, 7);
+
+            _stopTimeoutBox = CreateNumberBox("停止超时 (秒)", 1, StopPolicyDefaults.MaxTimeoutSeconds, StopPolicyDefaults.TimeoutSeconds);
+            _stopTimeoutBox.Description = "超时未退出则强制结束进程树";
+            Grid.SetColumn(_stopTimeoutBox, 1); Grid.SetRow(_stopTimeoutBox, 7);
+
+            // Stop command
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            _stopCommandBox = new TextBox
+            {
+                Header = "停止命令",
+                PlaceholderText = "{exe} -s quit",
+                Description = "在工作目录中通过 cmd 执行；占位符：{exe} 程序路径、{workdir} 工作目录（自动加引号）、{pid} 进程 ID"
+            };
+            Grid.SetColumn(_stopCommandBox, 0); Grid.SetRow(_stopCommandBox, 8);
+            Grid.SetColumnSpan(_stopCommandBox, 2);
+            _stopModeBox.SelectionChanged += (s, e) => UpdateStopControls();
+
             // Validation message
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             _errorText = new TextBlock
@@ -145,7 +172,7 @@ namespace ServicesApp
                 TextWrapping = TextWrapping.Wrap,
                 Visibility = Visibility.Collapsed
             };
-            Grid.SetColumn(_errorText, 0); Grid.SetRow(_errorText, 7);
+            Grid.SetColumn(_errorText, 0); Grid.SetRow(_errorText, 9);
             Grid.SetColumnSpan(_errorText, 2);
 
             // Add children
@@ -157,6 +184,9 @@ namespace ServicesApp
             grid.Children.Add(_descriptionBox);
             grid.Children.Add(_autoRestartCheck);
             grid.Children.Add(_restartPolicyPanel);
+            grid.Children.Add(_stopModeBox);
+            grid.Children.Add(_stopTimeoutBox);
+            grid.Children.Add(_stopCommandBox);
             grid.Children.Add(_errorText);
 
             if (existing != null)
@@ -172,12 +202,17 @@ namespace ServicesApp
                 _maxRestartsBox.Value = existing.MaxRestarts;
                 _restartResetBox.Value = existing.RestartResetMinutes;
                 _restartBackoffCheck.IsChecked = existing.RestartBackoff;
+                _stopModeBox.SelectedIndex = (int)existing.StopMode;
+                _stopTimeoutBox.Value = existing.StopTimeoutSeconds;
+                _stopCommandBox.Text = existing.StopCommand ?? "";
                 _startupBox.SelectedIndex = (int)existing.StartupType - (int)ServiceStartupType.Auto;
             }
             else
             {
                 _startupBox.SelectedIndex = 0;
+                _stopModeBox.SelectedIndex = 0;
             }
+            UpdateStopControls();
 
             // Wrap in ScrollViewer but HIDE scrollbars (Clean UI)
             View = new ScrollViewer
@@ -259,6 +294,19 @@ namespace ServicesApp
         /// <summary>
         /// 校验表单，失败时在表单内显示错误信息并返回 false
         /// </summary>
+        private ServiceStopMode SelectedStopMode =>
+            _stopModeBox.SelectedIndex >= 0 ? (ServiceStopMode)_stopModeBox.SelectedIndex : ServiceStopMode.Kill;
+
+        /// <summary>
+        /// 直接结束时无需超时；仅“执行停止命令”需要填写命令
+        /// </summary>
+        private void UpdateStopControls()
+        {
+            var mode = SelectedStopMode;
+            _stopTimeoutBox.Visibility = mode == ServiceStopMode.Kill ? Visibility.Collapsed : Visibility.Visible;
+            _stopCommandBox.Visibility = mode == ServiceStopMode.Command ? Visibility.Visible : Visibility.Collapsed;
+        }
+
         public bool Validate()
         {
             string? error = null;
@@ -273,6 +321,10 @@ namespace ServicesApp
             else if (!System.IO.File.Exists(_exeBox.Text.Trim()))
             {
                 error = "可执行文件不存在，请检查路径。";
+            }
+            else if (SelectedStopMode == ServiceStopMode.Command && string.IsNullOrWhiteSpace(_stopCommandBox.Text))
+            {
+                error = "停止方式为“执行停止命令”时必须填写停止命令。";
             }
 
             _errorText.Text = error ?? "";
@@ -295,6 +347,9 @@ namespace ServicesApp
                 MaxRestarts = ReadNumber(_maxRestartsBox, RestartPolicyDefaults.MaxRestarts),
                 RestartResetMinutes = ReadNumber(_restartResetBox, RestartPolicyDefaults.ResetMinutes),
                 RestartBackoff = _restartBackoffCheck.IsChecked ?? RestartPolicyDefaults.Backoff,
+                StopMode = SelectedStopMode,
+                StopCommand = _stopCommandBox.Text.Trim(),
+                StopTimeoutSeconds = ReadNumber(_stopTimeoutBox, StopPolicyDefaults.TimeoutSeconds),
                 StartupType = (ServiceStartupType)(_startupBox.SelectedIndex + (int)ServiceStartupType.Auto)
             };
         }

@@ -91,6 +91,9 @@ namespace Services.Core.Services
                 MaxRestarts = s.MaxRestarts,
                 RestartResetMinutes = s.RestartResetMinutes,
                 RestartBackoff = s.RestartBackoff,
+                StopMode = s.StopMode,
+                StopCommand = s.StopCommand,
+                StopTimeoutSeconds = s.StopTimeoutSeconds,
                 CreatedAt = s.CreatedAt,
                 UpdatedAt = s.UpdatedAt
             };
@@ -282,6 +285,9 @@ namespace Services.Core.Services
 
             if (config.Name.Contains("\"") || config.Name.Contains("\n") || config.Name.Contains("\r"))
                 throw new ArgumentException("Service Name contains illegal characters.");
+
+            if (config.StopMode == ServiceStopMode.Command && string.IsNullOrWhiteSpace(config.StopCommand))
+                throw new ArgumentException("Stop command is required when stop mode is 'command'.");
         }
 
         private static void WriteParameters(RegistryKey paramsKey, ServiceConfig config)
@@ -296,6 +302,9 @@ namespace Services.Core.Services
             paramsKey.SetValue("MaxRestarts", config.MaxRestarts, RegistryValueKind.DWord);
             paramsKey.SetValue("RestartResetMinutes", config.RestartResetMinutes, RegistryValueKind.DWord);
             paramsKey.SetValue("RestartBackoff", config.RestartBackoff ? 1 : 0, RegistryValueKind.DWord);
+            paramsKey.SetValue("StopMode", (int)config.StopMode, RegistryValueKind.DWord);
+            paramsKey.SetValue("StopCommand", config.StopCommand ?? "");
+            paramsKey.SetValue("StopTimeoutSeconds", config.StopTimeoutSeconds, RegistryValueKind.DWord);
         }
 
         private static string BuildServiceDescription(ServiceConfig config)
@@ -574,6 +583,11 @@ namespace Services.Core.Services
             var maxRestarts = paramsKey.GetValue("MaxRestarts") is int maxVal ? maxVal : RestartPolicyDefaults.MaxRestarts;
             var restartResetMinutes = paramsKey.GetValue("RestartResetMinutes") is int resetVal ? resetVal : RestartPolicyDefaults.ResetMinutes;
             var restartBackoff = paramsKey.GetValue("RestartBackoff") is int backoffVal ? backoffVal == 1 : RestartPolicyDefaults.Backoff;
+            var stopMode = paramsKey.GetValue("StopMode") is int stopModeVal && Enum.IsDefined(typeof(ServiceStopMode), stopModeVal)
+                ? (ServiceStopMode)stopModeVal : ServiceStopMode.Kill;
+            var stopCommand = paramsKey.GetValue("StopCommand") as string;
+            var stopTimeoutSeconds = paramsKey.GetValue("StopTimeoutSeconds") is int stopTimeoutVal && stopTimeoutVal > 0
+                ? stopTimeoutVal : StopPolicyDefaults.TimeoutSeconds;
 
             var createdAtStr = paramsKey.GetValue("CreatedAt") as string;
             DateTime createdAt = DateTime.Now;
@@ -598,6 +612,9 @@ namespace Services.Core.Services
                 MaxRestarts = maxRestarts,
                 RestartResetMinutes = restartResetMinutes,
                 RestartBackoff = restartBackoff,
+                StopMode = stopMode,
+                StopCommand = stopCommand,
+                StopTimeoutSeconds = stopTimeoutSeconds,
                 CreatedAt = createdAt,
                 UpdatedAt = DateTime.Now,
                 StartupType = startupType,

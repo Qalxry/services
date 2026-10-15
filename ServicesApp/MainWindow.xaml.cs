@@ -570,6 +570,7 @@ namespace ServicesApp
             AddRow("状态", service.HasPid ? $"{service.Status} (PID {service.Pid})" : service.Status);
             AddRow("启动类型", GetStartupTypeText(service.StartupType));
             AddRow("失败自动重启", service.AutoRestart ? GetRestartPolicyText(service) : "未启用");
+            AddRow("停止方式", GetStopPolicyText(service));
             AddRow("可执行文件路径", service.ExePath, true);
             AddRow("工作目录", service.WorkingDir, true);
             AddRow("启动参数", service.Args, true);
@@ -603,6 +604,13 @@ namespace ServicesApp
             var backoffText = service.RestartBackoff ? "，指数退避" : "";
             return $"已启用（延迟 {service.RestartDelaySeconds} 秒{backoffText}，{maxText}，{service.RestartResetMinutes} 分钟后重置计数）";
         }
+
+        private static string GetStopPolicyText(Service service) => service.StopMode switch
+        {
+            ServiceStopMode.CtrlC => $"发送 Ctrl+C（{service.StopTimeoutSeconds} 秒未退出则强制结束）",
+            ServiceStopMode.Command => $"执行停止命令：{service.StopCommand}（{service.StopTimeoutSeconds} 秒未退出则强制结束）",
+            _ => "直接结束进程"
+        };
 
         private static string GetStartupTypeText(ServiceStartupType type) => type switch
         {
