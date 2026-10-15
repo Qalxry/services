@@ -177,7 +177,7 @@ namespace Services.Tests
         [Fact]
         public void CopyFrom_RaisesPropertyChangedForChangedFields()
         {
-            var source = new Service { Name = "new", Status = "运行中", Pid = 42 };
+            var source = new Service { Name = "new", State = ServiceRunState.Running, Pid = 42 };
             var target = new Service();
             var changed = new List<string?>();
             target.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
@@ -185,7 +185,7 @@ namespace Services.Tests
             target.CopyFrom(source);
 
             Assert.Contains(nameof(Service.Name), changed);
-            Assert.Contains(nameof(Service.Status), changed);
+            Assert.Contains(nameof(Service.State), changed);
             Assert.Contains(nameof(Service.Pid), changed);
             Assert.Contains(nameof(Service.HasPid), changed);
         }

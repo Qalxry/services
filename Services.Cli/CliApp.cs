@@ -7,6 +7,8 @@ using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using Services.Core.Helpers;
 using Services.Core.Models;
+using Services.Core.Presentation;
+using Services.Core.Scm;
 using Services.Core.Services;
 
 namespace Services.Cli
@@ -215,7 +217,7 @@ namespace Services.Cli
 
             var rows = services.Select(s => new[]
             {
-                s.Id, s.Name, s.Status, s.HasPid ? s.Pid.ToString() : "-", ToStartupText(s.StartupType, s.DelayedAutoStart), s.ExePath
+                s.Id, s.Name, ServiceText.State(s.State), s.HasPid ? s.Pid.ToString() : "-", ServiceText.StartupMode(s.StartupType, s.DelayedAutoStart), s.ExePath
             }).ToList();
             WriteTable(new[] { "ID", "名称", "状态", "PID", "启动类型", "程序路径" }, rows);
             return ExitCodes.Success;
@@ -225,12 +227,12 @@ namespace Services.Cli
         {
             var manager = await CreateManagerAsync();
             var service = await FindServiceAsync(manager, args.Positionals[0]);
-            var info = ToInfo(service, new LogManager());
+            var logManager = new LogManager();
 
             if (args.Json)
-                WriteJson(info, CliJsonContext.Readable.ServiceInfo);
+                WriteJson(ToInfo(service, logManager), CliJsonContext.Readable.ServiceInfo);
             else
-                WriteServiceText(info);
+                WriteServiceText(service, logManager);
             return ExitCodes.Success;
         }
 
@@ -777,8 +779,8 @@ namespace Services.Cli
 
         private static bool IsRunning(string id)
         {
-            var (status, _) = ServiceUtils.GetServiceStatus(id);
-            return status is "运行中" or "启动中";
+            var (state, _) = ScmClient.QueryStatus(id);
+            return state is ServiceRunState.Running or ServiceRunState.StartPending;
         }
 
         private static bool IsAdministrator()
@@ -862,19 +864,20 @@ namespace Services.Cli
         {
             await manager.InitializeAsync();
             var service = (await manager.GetServicesSnapshotAsync()).FirstOrDefault(s => s.Id == id);
-            var info = service == null ? null : ToInfo(service, new LogManager());
+            var logManager = new LogManager();
 
             if (args.Json)
             {
+                var info = service == null ? null : ToInfo(service, logManager);
                 WriteJson(new ActionResult { Action = action, Id = id, Message = message, Service = info }, CliJsonContext.Readable.ActionResult);
             }
             else
             {
                 Console.WriteLine(message);
-                if (info != null)
+                if (service != null)
                 {
                     Console.WriteLine();
-                    WriteServiceText(info);
+                    WriteServiceText(service, logManager);
                 }
             }
             return ExitCodes.Success;
@@ -887,15 +890,8 @@ namespace Services.Cli
                 Id = s.Id,
                 Name = s.Name,
                 Description = s.Description,
-                State = s.Status switch
-                {
-                    "运行中" => "running",
-                    "已停止" => "stopped",
-                    "启动中" => "start_pending",
-                    "停止中" => "stop_pending",
-                    _ => "unknown"
-                },
-                StatusText = s.Status,
+                State = ServiceText.StateValue(s.State),
+                StatusText = ServiceText.State(s.State),
                 Pid = s.HasPid ? s.Pid : null,
                 StartupType = ServiceStartupModes.ToCliValue(s.StartupType, s.DelayedAutoStart),
                 ExePath = s.ExePath,
@@ -935,7 +931,7 @@ namespace Services.Cli
         {
             if (state == null) return null;
 
-            var uptime = ServiceRuntimeState.GetUptime(state, s.Pid, s.Status == "运行中", DateTime.Now);
+            var uptime = ServiceRuntimeState.GetUptime(state, s.Pid, s.IsRunning, DateTime.Now);
             return new RuntimeInfo
             {
                 WrapperPid = state.WrapperPid,
@@ -960,58 +956,22 @@ namespace Services.Cli
             _ => "kill"
         };
 
-        private static string ToStartupText(ServiceStartupType type, bool delayed) => type switch
+        /// <summary>
+        /// 详情文本：与 GUI 详情对话框使用同一组行（Presentation.ServiceDetails）
+        /// </summary>
+        private static void WriteServiceText(Service service, LogManager logManager)
         {
-            ServiceStartupType.Auto => delayed ? "延迟自启" : "开机自启",
-            ServiceStartupType.Manual => "手动",
-            ServiceStartupType.Disabled => "已禁用",
-            _ => "未知"
-        };
-
-        private static void WriteServiceText(ServiceInfo info)
-        {
-            var policy = info.RestartPolicy;
-            var restartText = info.AutoRestart
-                ? $"已启用（延迟 {policy.DelaySeconds} 秒，{(policy.MaxRestarts > 0 ? $"最多 {policy.MaxRestarts} 次" : "不限次数")}，" +
-                  $"{policy.ResetMinutes} 分钟后重置计数{(policy.Backoff ? "，指数退避" : "")}）"
-                : "未启用";
-            var stop = info.StopPolicy;
-            var stopText = stop.Mode switch
-            {
-                "ctrl-c" => $"发送 Ctrl+C（{stop.TimeoutSeconds} 秒未退出则强制结束）",
-                "command" => $"执行停止命令: {stop.Command}（{stop.TimeoutSeconds} 秒未退出则强制结束）",
-                _ => "直接结束进程"
-            };
-
-            var rows = new (string Label, string? Value)[]
-            {
-                ("ID", info.Id),
-                ("名称", info.Name),
-                ("描述", info.Description),
-                ("状态", info.Pid is { } pid ? $"{info.StatusText} (PID {pid})" : info.StatusText),
-                ("运行时长", info.Runtime?.UptimeSeconds is { } uptime ? DurationFormatter.Format(TimeSpan.FromSeconds(uptime)) : null),
-                ("重启次数", info.Runtime is { } rt ? ServiceRuntimeText.Restarts(rt.RestartCount, rt.TotalRestarts) : null),
-                ("上次退出", info.Runtime is { } last ? ServiceRuntimeText.LastExit(last.LastExitCode, last.LastExitAt) : null),
-                ("最近失败原因", info.Runtime?.LastFailureReason),
-                ("启动类型", info.StartupType == "delayed-auto" ? "delayed-auto（延迟自动启动）" : info.StartupType),
-                ("失败自动重启", restartText),
-                ("停止方式", stopText),
-                ("运行账户", info.Account.Name),
-                ("程序路径", info.ExePath),
-                ("工作目录", info.WorkingDir),
-                ("启动参数", info.CommandLineArgs),
-                ("环境变量", string.Join("\n", info.Environment.Select(pair => $"{pair.Key}={pair.Value}"))),
-                ("依赖服务", ServiceDependencies.Format(info.Dependencies)),
-                ("创建时间", info.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss")),
-                ("最新日志", info.LatestLogPath),
-            };
+            var runtime = new ServiceStateStore(logManager.GetLogDirectory()).Read(service.Id);
+            var rows = ServiceDetails.Build(service, runtime, logManager.GetLatestLogPath(service.Id), DateTime.Now);
 
             int width = rows.Max(r => DisplayWidth(r.Label));
-            foreach (var (label, value) in rows)
+            foreach (var row in rows)
             {
-                // 多行的值（如环境变量）从第二行起缩进到值所在的列
-                var text = string.IsNullOrWhiteSpace(value) ? "-" : value.Replace("\n", "\n" + new string(' ', width + 2));
-                Console.WriteLine($"{PadDisplay(label, width)}  {text}");
+                // 多行的值（如环境变量、多行参数）从第二行起缩进到值所在的列
+                var text = string.IsNullOrWhiteSpace(row.Value)
+                    ? "-"
+                    : row.Value.Replace("\r\n", "\n").Replace("\n", "\n" + new string(' ', width + 2));
+                Console.WriteLine($"{PadDisplay(row.Label, width)}  {text}");
             }
         }
 

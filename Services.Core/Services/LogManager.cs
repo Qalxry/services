@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Microsoft.Win32;
+using Services.Core.Storage;
 
 namespace Services.Core.Services
 {
@@ -166,99 +167,56 @@ namespace Services.Core.Services
             return result;
         }
 
-        public static int GetGlobalRetentionDays()
-        {
-            try
-            {
-                using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\WindowsServiceManager");
-                if (key != null)
-                {
-                    var val = key.GetValue("LogRetentionDays");
-                    if (val is int days) return days;
-                }
-            }
-            catch { }
-            return DefaultRetentionDays;
-        }
+        public static int GetGlobalRetentionDays() =>
+            ReadSetting(SettingNames.LogRetentionDays, v => true, DefaultRetentionDays);
+
+        public static void SetGlobalRetentionDays(int days) => WriteSetting(SettingNames.LogRetentionDays, days);
 
         /// <summary>
         /// 日志总大小上限（MB），0 表示不限制，默认 1024
         /// </summary>
-        public static int GetGlobalMaxTotalSizeMB()
-        {
-            try
-            {
-                using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\WindowsServiceManager");
-                if (key?.GetValue("LogMaxTotalSizeMB") is int mb && mb >= 0) return mb;
-            }
-            catch { }
-            return DefaultMaxTotalSizeMB;
-        }
+        public static int GetGlobalMaxTotalSizeMB() =>
+            ReadSetting(SettingNames.LogMaxTotalSizeMB, mb => mb >= 0, DefaultMaxTotalSizeMB);
 
-        public static void SetGlobalMaxTotalSizeMB(int mb)
-        {
-            try
-            {
-                using var key = Registry.LocalMachine.CreateSubKey(@"SOFTWARE\WindowsServiceManager");
-                key.SetValue("LogMaxTotalSizeMB", mb);
-            }
-            catch { }
-        }
+        public static void SetGlobalMaxTotalSizeMB(int mb) => WriteSetting(SettingNames.LogMaxTotalSizeMB, mb);
 
         /// <summary>
         /// 日志查看器是否自动换行（默认开启）
         /// </summary>
-        public static bool GetLogWordWrap()
-        {
-            try
-            {
-                using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\WindowsServiceManager");
-                if (key?.GetValue("LogWordWrap") is int val) return val != 0;
-            }
-            catch { }
-            return true;
-        }
+        public static bool GetLogWordWrap() => ReadSetting(SettingNames.LogWordWrap, v => true, 1) != 0;
 
-        public static void SetLogWordWrap(bool wrap)
-        {
-            try
-            {
-                using var key = Registry.LocalMachine.CreateSubKey(@"SOFTWARE\WindowsServiceManager");
-                key.SetValue("LogWordWrap", wrap ? 1 : 0);
-            }
-            catch { }
-        }
+        public static void SetLogWordWrap(bool wrap) => WriteSetting(SettingNames.LogWordWrap, wrap ? 1 : 0);
 
         /// <summary>
         /// 日志查看器是否显示行首时间戳（默认开启）
         /// </summary>
-        public static bool GetLogShowTimestamps()
+        public static bool GetLogShowTimestamps() => ReadSetting(SettingNames.LogShowTimestamps, v => true, 1) != 0;
+
+        public static void SetLogShowTimestamps(bool show) => WriteSetting(SettingNames.LogShowTimestamps, show ? 1 : 0);
+
+        /// <summary>
+        /// 读取全局设置（DWORD）；不存在、类型不符、未通过校验或无法读取时返回默认值
+        /// </summary>
+        private static int ReadSetting(string name, Func<int, bool> isValid, int defaultValue)
         {
             try
             {
-                using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\WindowsServiceManager");
-                if (key?.GetValue("LogShowTimestamps") is int val) return val != 0;
+                using var key = Registry.LocalMachine.OpenSubKey(RegistryPaths.Product);
+                if (key?.GetValue(name) is int value && isValid(value)) return value;
             }
             catch { }
-            return true;
+            return defaultValue;
         }
 
-        public static void SetLogShowTimestamps(bool show)
+        /// <summary>
+        /// 写入全局设置；无权限（非管理员）时忽略
+        /// </summary>
+        private static void WriteSetting(string name, int value)
         {
             try
             {
-                using var key = Registry.LocalMachine.CreateSubKey(@"SOFTWARE\WindowsServiceManager");
-                key.SetValue("LogShowTimestamps", show ? 1 : 0);
-            }
-            catch { }
-        }
-
-        public static void SetGlobalRetentionDays(int days)
-        {
-            try
-            {
-                using var key = Registry.LocalMachine.CreateSubKey(@"SOFTWARE\WindowsServiceManager");
-                key.SetValue("LogRetentionDays", days);
+                using var key = Registry.LocalMachine.CreateSubKey(RegistryPaths.Product);
+                key.SetValue(name, value);
             }
             catch { }
         }

@@ -1,5 +1,6 @@
 using Services.Core.Helpers;
 using Services.Core.Models;
+using Services.Core.Presentation;
 using Services.Core.Services;
 using Xunit;
 
@@ -210,15 +211,15 @@ namespace Services.Tests
         [Fact]
         public void RuntimeText_LastExit_FormatsCodeAndTime()
         {
-            Assert.Null(ServiceRuntimeText.LastExit(null, null));
-            Assert.Equal("退出码 1（2026-10-15 08:05:00）", ServiceRuntimeText.LastExit(1, new DateTime(2026, 10, 15, 8, 5, 0)));
-            Assert.Equal("退出码 0", ServiceRuntimeText.LastExit(0, null));
+            Assert.Null(ServiceText.LastExit(null, null));
+            Assert.Equal("退出码 1（2026-10-15 08:05:00）", ServiceText.LastExit(1, new DateTime(2026, 10, 15, 8, 5, 0)));
+            Assert.Equal("退出码 0", ServiceText.LastExit(0, null));
         }
 
         [Fact]
         public void RuntimeText_Restarts_ShowsBothCounts()
         {
-            Assert.Equal("本轮 2 次，累计 7 次", ServiceRuntimeText.Restarts(2, 7));
+            Assert.Equal("本轮 2 次，累计 7 次", ServiceText.Restarts(2, 7));
         }
     }
 
@@ -239,19 +240,19 @@ namespace Services.Tests
         [InlineData(400 * 86400, "400 天 0 小时")]
         public void Format_UsesTwoUnitsAndTruncates(int seconds, string expected)
         {
-            Assert.Equal(expected, DurationFormatter.Format(TimeSpan.FromSeconds(seconds)));
+            Assert.Equal(expected, ServiceText.Duration(TimeSpan.FromSeconds(seconds)));
         }
 
         [Fact]
         public void Format_IgnoresFractionalSeconds()
         {
-            Assert.Equal("59 秒", DurationFormatter.Format(TimeSpan.FromMilliseconds(59999)));
+            Assert.Equal("59 秒", ServiceText.Duration(TimeSpan.FromMilliseconds(59999)));
         }
 
         [Fact]
         public void Format_NegativeIsTreatedAsZero()
         {
-            Assert.Equal("0 秒", DurationFormatter.Format(TimeSpan.FromSeconds(-30)));
+            Assert.Equal("0 秒", ServiceText.Duration(TimeSpan.FromSeconds(-30)));
         }
     }
 }

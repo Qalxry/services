@@ -4,6 +4,7 @@ using System.IO;
 using Microsoft.Win32;
 using Services.Core.Helpers;
 using Services.Core.Models;
+using Services.Core.Storage;
 
 namespace Services.Core.Wrapper
 {
@@ -32,19 +33,19 @@ namespace Services.Core.Wrapper
 
         public static WrapperSettings Load(string serviceId)
         {
-            using var key = Registry.LocalMachine.OpenSubKey($@"SYSTEM\CurrentControlSet\Services\{serviceId}\Parameters")
+            using var key = Registry.LocalMachine.OpenSubKey(RegistryPaths.Parameters(serviceId))
                 ?? throw new InvalidOperationException("Service configuration not found in registry");
 
-            var exePath = key.GetValue("ExePath") as string;
+            var exePath = key.GetValue(ParameterNames.ExePath) as string;
             if (string.IsNullOrEmpty(exePath)) throw new InvalidOperationException("ExePath is missing in registry");
 
-            var workingDir = key.GetValue("WorkingDir") as string;
+            var workingDir = key.GetValue(ParameterNames.WorkingDir) as string;
             return new WrapperSettings
             {
                 ExePath = exePath,
-                Args = ServiceUtils.NormalizeArgs(key.GetValue("Args") as string),
+                Args = ServiceUtils.NormalizeArgs(key.GetValue(ParameterNames.Args) as string),
                 WorkingDir = string.IsNullOrEmpty(workingDir) ? Path.GetDirectoryName(exePath) ?? "" : workingDir,
-                Environment = Try(() => EnvironmentVariables.ParseLenient(key.GetValue("Environment") as string[]),
+                Environment = Try(() => EnvironmentVariables.ParseLenient(key.GetValue(ParameterNames.Environment) as string[]),
                     new Dictionary<string, string>()),
                 Restart = Try(() => LoadRestartPolicy(key), RestartPolicySettings.Default),
                 Stop = Try(() => LoadStopPolicy(key), StopPolicySettings.Default)
@@ -55,20 +56,20 @@ namespace Services.Core.Wrapper
         {
             var d = RestartPolicySettings.Default;
             return new RestartPolicySettings(
-                Enabled: key.GetValue("AutoRestart") is int enabled && enabled == 1,
-                DelaySeconds: key.GetValue("RestartDelaySeconds") is int delay && delay > 0
+                Enabled: key.GetValue(ParameterNames.AutoRestart) is int enabled && enabled == 1,
+                DelaySeconds: key.GetValue(ParameterNames.RestartDelaySeconds) is int delay && delay > 0
                     ? Math.Min(delay, RestartPolicySettings.MaxDelaySeconds) : d.DelaySeconds,
-                MaxRestarts: key.GetValue("MaxRestarts") is int max && max >= 0 ? max : d.MaxRestarts,
-                ResetMinutes: key.GetValue("RestartResetMinutes") is int reset && reset > 0 ? reset : d.ResetMinutes,
-                Backoff: key.GetValue("RestartBackoff") is int backoff ? backoff == 1 : d.Backoff);
+                MaxRestarts: key.GetValue(ParameterNames.MaxRestarts) is int max && max >= 0 ? max : d.MaxRestarts,
+                ResetMinutes: key.GetValue(ParameterNames.RestartResetMinutes) is int reset && reset > 0 ? reset : d.ResetMinutes,
+                Backoff: key.GetValue(ParameterNames.RestartBackoff) is int backoff ? backoff == 1 : d.Backoff);
         }
 
         private static StopPolicySettings LoadStopPolicy(RegistryKey key)
         {
-            var mode = key.GetValue("StopMode") is int value && Enum.IsDefined(typeof(ServiceStopMode), value)
+            var mode = key.GetValue(ParameterNames.StopMode) is int value && Enum.IsDefined(typeof(ServiceStopMode), value)
                 ? (ServiceStopMode)value : ServiceStopMode.Kill;
-            var command = key.GetValue("StopCommand") as string ?? "";
-            var timeout = key.GetValue("StopTimeoutSeconds") is int t && t > 0
+            var command = key.GetValue(ParameterNames.StopCommand) as string ?? "";
+            var timeout = key.GetValue(ParameterNames.StopTimeoutSeconds) is int t && t > 0
                 ? Math.Min(t, StopPolicyDefaults.MaxTimeoutSeconds) : StopPolicyDefaults.TimeoutSeconds;
 
             // 停止命令为空时无法执行，退回直接结束

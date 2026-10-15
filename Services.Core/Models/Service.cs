@@ -8,7 +8,7 @@ namespace Services.Core.Models
 {
     public class Service : INotifyPropertyChanged
     {
-        private string _status = "未知";
+        private ServiceRunState _state = ServiceRunState.Unknown;
         private int _pid;
         private string _name = string.Empty;
         private string _exePath = string.Empty;
@@ -51,11 +51,20 @@ namespace Services.Core.Models
             set => SetField(ref _description, value);
         }
 
-        public string Status
+        /// <summary>运行状态（展示文本由 Presentation.ServiceText 生成）</summary>
+        public ServiceRunState State
         {
-            get => _status;
-            set => SetField(ref _status, value);
+            get => _state;
+            set
+            {
+                if (SetField(ref _state, value))
+                {
+                    OnPropertyChanged(nameof(IsRunning));
+                }
+            }
         }
+
+        public bool IsRunning => State == ServiceRunState.Running;
 
         public int Pid
         {
@@ -130,7 +139,7 @@ namespace Services.Core.Models
             Args = other.Args;
             WorkingDir = other.WorkingDir;
             Description = other.Description;
-            Status = other.Status;
+            State = other.State;
             Pid = other.Pid;
             StartupType = other.StartupType;
             DelayedAutoStart = other.DelayedAutoStart;

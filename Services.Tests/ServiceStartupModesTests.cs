@@ -1,5 +1,6 @@
 using Services.Core.Helpers;
 using Services.Core.Models;
+using Services.Core.Presentation;
 using Xunit;
 
 namespace Services.Tests
@@ -26,14 +27,14 @@ namespace Services.Tests
         [MemberData(nameof(AllModes))]
         public void DisplayNames_MatchIndex(ServiceStartupType type, bool delayed, int index, string cli, string display)
         {
-            Assert.Equal(display, ServiceStartupModes.DisplayNames[index]);
-            Assert.Equal(display, ServiceStartupModes.ToDisplayName(type, delayed));
+            Assert.Equal(display, ServiceText.StartupModeNames[index]);
+            Assert.Equal(display, ServiceText.StartupMode(type, delayed));
         }
 
         [Fact]
         public void DisplayNames_HasOneEntryPerMode()
         {
-            Assert.Equal(4, ServiceStartupModes.DisplayNames.Length);
+            Assert.Equal(4, ServiceText.StartupModeNames.Length);
         }
 
         [Theory]

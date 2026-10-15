@@ -6,6 +6,7 @@ using Microsoft.UI;
 using Services.Core.Helpers;
 using Services.Core.Services;
 using Services.Core.Models;
+using Services.Core.Presentation;
 using System.Collections.ObjectModel;
 using System;
 using System.Linq;
@@ -314,7 +315,7 @@ namespace ServicesApp
                 var existing = Services.FirstOrDefault(s => s.Id == service.Id);
                 if (existing != null)
                 {
-                    existing.Status = service.Status;
+                    existing.State = service.State;
                     existing.Pid = service.Pid;
                     existing.UpdatedAt = service.UpdatedAt;
                     if (_sortColumn == SortColumn.Status) ApplySort();
@@ -422,7 +423,7 @@ namespace ServicesApp
             int result = _sortColumn switch
             {
                 SortColumn.Name => StringComparer.CurrentCultureIgnoreCase.Compare(a.Name, b.Name),
-                SortColumn.Status => GetStatusRank(a.Status).CompareTo(GetStatusRank(b.Status)),
+                SortColumn.Status => GetStatusRank(a.State).CompareTo(GetStatusRank(b.State)),
                 SortColumn.Path => StringComparer.OrdinalIgnoreCase.Compare(a.ExePath, b.ExePath),
                 _ => 0
             };
@@ -434,12 +435,12 @@ namespace ServicesApp
             return result != 0 ? result : string.CompareOrdinal(a.Id, b.Id);
         }
 
-        private static int GetStatusRank(string status) => status switch
+        private static int GetStatusRank(ServiceRunState state) => state switch
         {
-            "运行中" => 0,
-            "启动中" => 1,
-            "停止中" => 2,
-            "已停止" => 3,
+            ServiceRunState.Running => 0,
+            ServiceRunState.StartPending => 1,
+            ServiceRunState.StopPending => 2,
+            ServiceRunState.Stopped => 3,
             _ => 4
         };
 
@@ -586,21 +587,12 @@ namespace ServicesApp
                 grid.Children.Add(valueBlock);
             }
 
-            AddRow("服务名称", service.Name);
-            AddRow("服务 ID", service.Id, true);
-            AddRow("描述", service.Description);
-            AddRow("状态", service.HasPid ? $"{service.Status} (PID {service.Pid})" : service.Status);
-            AddRuntimeRows(AddRow, service);
-            AddRow("启动类型", ServiceStartupModes.ToDisplayName(service.StartupType, service.DelayedAutoStart));
-            AddRow("失败自动重启", service.AutoRestart ? GetRestartPolicyText(service) : "未启用");
-            AddRow("停止方式", GetStopPolicyText(service));
-            AddRow("运行账户", service.AccountName, true);
-            AddRow("可执行文件路径", service.ExePath, true);
-            AddRow("工作目录", service.WorkingDir, true);
-            AddRow("启动参数", service.Args, true);
-            AddRow("环境变量", EnvironmentVariables.Format(service.Environment), true);
-            AddRow("依赖服务", ServiceDependencies.Format(service.Dependencies), true);
-            AddRow("创建时间", service.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss"));
+            // 与 servicesctl get 使用同一组行
+            var runtime = new ServiceStateStore().Read(service.Id);
+            foreach (var row in ServiceDetails.Build(service, runtime, latestLogPath: null, DateTime.Now))
+            {
+                AddRow(row.Label, row.Value, row.Monospace);
+            }
 
             var dialog = new ContentDialog
             {
@@ -623,35 +615,6 @@ namespace ServicesApp
                 ShowLogViewer(service.Id, service.Name);
             }
         }
-
-        /// <summary>
-        /// 添加包装器记录的运行信息行。没有状态文件（服务从未以新版包装器运行过）时各行显示“—”。
-        /// </summary>
-        private static void AddRuntimeRows(Action<string, string?, bool> addRow, Service service)
-        {
-            var state = new ServiceStateStore().Read(service.Id);
-            var uptime = ServiceRuntimeState.GetUptime(state, service.Pid, service.Status == "运行中", DateTime.Now);
-
-            addRow("运行时长", uptime is { } span ? DurationFormatter.Format(span) : null, false);
-            addRow("重启次数", state == null ? null : ServiceRuntimeText.Restarts(state.RestartCount, state.TotalRestarts), false);
-            addRow("上次退出", state == null ? null : ServiceRuntimeText.LastExit(state.LastExitCode, state.LastExitAt), false);
-            if (!string.IsNullOrWhiteSpace(state?.LastFailureReason))
-                addRow("最近失败原因", state!.LastFailureReason, false);
-        }
-
-        private static string GetRestartPolicyText(Service service)
-        {
-            var maxText = service.MaxRestarts > 0 ? $"最多 {service.MaxRestarts} 次" : "不限次数";
-            var backoffText = service.RestartBackoff ? "，指数退避" : "";
-            return $"已启用（延迟 {service.RestartDelaySeconds} 秒{backoffText}，{maxText}，{service.RestartResetMinutes} 分钟后重置计数）";
-        }
-
-        private static string GetStopPolicyText(Service service) => service.StopMode switch
-        {
-            ServiceStopMode.CtrlC => $"发送 Ctrl+C（{service.StopTimeoutSeconds} 秒未退出则强制结束）",
-            ServiceStopMode.Command => $"执行停止命令：{service.StopCommand}（{service.StopTimeoutSeconds} 秒未退出则强制结束）",
-            _ => "直接结束进程"
-        };
 
         private async void OnAddServiceClick(object sender, RoutedEventArgs e)
         {
@@ -723,7 +686,7 @@ namespace ServicesApp
                 return;
             }
 
-            if (existing.Status == "运行中" &&
+            if (existing.IsRunning &&
                 await ShowConfirmDialog("应用更改", $"服务 '{config.Name}' 正在运行，新配置需重启服务后生效。是否立即重启？"))
             {
                 try

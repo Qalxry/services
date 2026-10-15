@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Services.Core.Helpers;
 using Services.Core.Models;
+using Services.Core.Presentation;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -57,7 +58,7 @@ namespace ServicesApp
             Grid.SetColumn(_nameBox, 0); Grid.SetRow(_nameBox, 0);
 
             _startupBox = new ComboBox { Header = "启动类型", HorizontalAlignment = HorizontalAlignment.Stretch };
-            foreach (var name in ServiceStartupModes.DisplayNames)
+            foreach (var name in ServiceText.StartupModeNames)
                 _startupBox.Items.Add(name);
             Grid.SetColumn(_startupBox, 1); Grid.SetRow(_startupBox, 0);
 

@@ -1,4 +1,6 @@
 using System;
+using Services.Core.Models;
+using Services.Core.Presentation;
 using Microsoft.UI.Xaml.Data;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI;
@@ -10,19 +12,32 @@ namespace ServicesApp
     {
         public object Convert(object value, Type targetType, object parameter, string language)
         {
-            if (value is string status)
+            if (value is ServiceRunState state)
             {
-                return status switch
+                return state switch
                 {
-                    "运行中" => new SolidColorBrush(Colors.LightGreen),
-                    "已停止" => new SolidColorBrush(Colors.Gray),
-                    "启动中" => new SolidColorBrush(Colors.Orange),
-                    "停止中" => new SolidColorBrush(Colors.Orange),
-                    _ => new SolidColorBrush(Colors.Red)
+                    ServiceRunState.Running => new SolidColorBrush(Colors.LightGreen),
+                    ServiceRunState.Stopped => new SolidColorBrush(Colors.Gray),
+                    ServiceRunState.Unknown => new SolidColorBrush(Colors.Red),
+                    _ => new SolidColorBrush(Colors.Orange)
                 };
             }
             return new SolidColorBrush(Colors.Gray);
         }
+
+        public object ConvertBack(object value, Type targetType, object parameter, string language)
+        {
+            throw new NotImplementedException();
+        }
+    }
+
+    /// <summary>
+    /// 运行状态 → 展示文本（与 CLI 共用 ServiceText）
+    /// </summary>
+    public class StatusTextConverter : IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, string language) =>
+            value is ServiceRunState state ? ServiceText.State(state) : ServiceText.State(ServiceRunState.Unknown);
 
         public object ConvertBack(object value, Type targetType, object parameter, string language)
         {

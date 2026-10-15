@@ -5,6 +5,7 @@ using System.ServiceProcess;
 using System.Threading;
 using System.Threading.Tasks;
 using Services.Core.Helpers;
+using Services.Core.Scm;
 using Services.Core.Wrapper;
 
 namespace Services.Core.Services
@@ -415,7 +416,7 @@ namespace Services.Core.Services
         {
             try
             {
-                ServiceUtils.SetFailureActionsOnNonCrashFailures(_serviceId, autoRestart);
+                ScmClient.SetFailureActionsOnNonCrashFailures(_serviceId, autoRestart);
             }
             catch { }
         }
