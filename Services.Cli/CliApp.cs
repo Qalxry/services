@@ -63,6 +63,11 @@ namespace Services.Cli
                 ValueOptions = new[] { "file" }, FlagOptions = new[] { "dry-run", "prune", "restart" },
                 ShortAliases = new Dictionary<string, string> { ["f"] = "file" }, Handler = ApplyAsync
             },
+            new CommandSpec
+            {
+                Name = "doctor", Summary = "诊断服务配置与权限问题", Help = HelpText.Doctor, MaxPositionals = int.MaxValue,
+                FlagOptions = new[] { "all" }, Handler = DoctorAsync
+            },
             new CommandSpec { Name = "migrate", Summary = "将服务迁移到当前的独立包装器", Help = HelpText.Migrate, RequiresAdmin = true, Handler = MigrateAsync },
             new CommandSpec { Name = "version", Summary = "显示版本号", Help = HelpText.Version, Handler = VersionAsync },
             new CommandSpec { Name = "help", Summary = "显示帮助", Help = HelpText.HelpCommand, MaxPositionals = 1, Handler = HelpAsync },

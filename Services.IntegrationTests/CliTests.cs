@@ -17,7 +17,7 @@ namespace Services.IntegrationTests
         public void EveryCommandHasHelp()
         {
             var overview = Ctl.Run("help").EnsureSuccess().Stdout;
-            foreach (var command in new[] { "list", "get", "create", "update", "delete", "start", "stop", "restart", "logs", "export", "apply", "migrate", "version" })
+            foreach (var command in new[] { "list", "get", "create", "update", "delete", "start", "stop", "restart", "logs", "export", "apply", "doctor", "migrate", "version" })
             {
                 Assert.Contains(command, overview);
                 var help = Ctl.Run(command, "--help").EnsureSuccess().Stdout;

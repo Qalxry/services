@@ -56,6 +56,8 @@ servicesctl delete MyApp
 servicesctl export -o services.json          # 导出全部服务配置（可纳入版本管理）
 servicesctl apply -f services.json --dry-run # 查看变更计划
 servicesctl apply -f services.json --restart # 声明式应用：创建 / 更新，加 --prune 删除多余服务
+
+servicesctl doctor                           # 诊断：程序 / 目录 / 包装器 / 依赖 / 运行账户权限，附修复建议
 ```
 
 `list` / `get` / `logs` 普通权限即可运行；其余会修改系统服务的命令需在管理员终端中执行。

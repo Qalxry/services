@@ -418,6 +418,46 @@ namespace Services.Cli
               {{Tool}} apply -f services.json --restart --json
             """;
 
+        public const string Doctor = $$"""
+            {{Tool}} doctor - 诊断服务能否正常运行，并给出修复建议
+
+            用法:
+              {{Tool}} doctor [<服务>...] [--all] [--json]
+
+            参数:
+              <服务>                要检查的服务（ID 或名称），可指定多个；省略时检查全部服务
+
+            选项:
+              --all                 文本输出时列出全部检查项（默认只列出警告与错误）
+
+            检查项（check 字段）:
+              admin                 是否以管理员权限运行（否则部分检查跳过）
+              wrapper-template      当前的包装器模板 servicesvc.exe 是否存在
+              log-directory         日志目录是否存在
+              exe / workdir         程序与工作目录是否存在
+              wrapper               服务的包装器是否存在、位于受保护目录且为当前版本
+              parameters            服务参数是否完整、取值是否有效
+              dependencies          依赖的服务是否存在
+              event-source          是否注册了 Windows 事件日志源
+              account               运行账户能否解析
+              account-read-exe      运行账户能否读取并执行程序（非 LocalSystem）
+              account-read-workdir  运行账户能否进入工作目录（非 LocalSystem）
+              account-write-logs    运行账户能否写入日志目录（非 LocalSystem）
+              secrets               运行账户能否读取敏感环境变量
+              runtime               自动启动的服务是否因失败而停止
+              权限检查只考虑账户自身与内置组（Users、Authenticated Users 等），未展开域组，
+              因此“未发现允许规则”为警告而非错误。
+
+            输出:
+              文本：按全局 / 服务分组，每项为 [OK] / [WARN] / [ERROR] / [SKIP]，附修复建议。
+              --json 时输出 { ok, summary: { ok, warning, error, skipped },
+                checks: [{ serviceId, serviceName, check, status, message, fix }] }，status 为 ok / warning / error / skipped。
+
+            退出码: 存在 error 级别的问题时为 1，否则为 0。
+
+            权限: 普通权限即可；以管理员运行时检查更完整。
+            """;
+
         public const string Migrate = $$"""
             {{Tool}} migrate - 将所有服务切换到当前版本的包装器，并清理旧版本
 

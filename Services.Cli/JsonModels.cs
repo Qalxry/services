@@ -121,6 +121,35 @@ namespace Services.Cli
         public string Message { get; set; } = "";
     }
 
+    internal sealed class DoctorResult
+    {
+        /// <summary>没有 error 级别的问题</summary>
+        public bool Ok { get; set; }
+        public DoctorSummary Summary { get; set; } = new();
+        public List<DoctorCheck> Checks { get; set; } = new();
+    }
+
+    internal sealed class DoctorSummary
+    {
+        public int Ok { get; set; }
+        public int Warning { get; set; }
+        public int Error { get; set; }
+        public int Skipped { get; set; }
+    }
+
+    internal sealed class DoctorCheck
+    {
+        /// <summary>服务 ID；全局检查为 null</summary>
+        public string? ServiceId { get; set; }
+        public string? ServiceName { get; set; }
+        public string Check { get; set; } = "";
+        /// <summary>ok / warning / error / skipped</summary>
+        public string Status { get; set; } = "";
+        public string Message { get; set; } = "";
+        /// <summary>建议的修复方法，没有时为 null</summary>
+        public string? Fix { get; set; }
+    }
+
     internal sealed class VersionInfo
     {
         public string Version { get; set; } = "";
@@ -138,6 +167,7 @@ namespace Services.Cli
     [JsonSerializable(typeof(LogLineInfo))]
     [JsonSerializable(typeof(VersionInfo))]
     [JsonSerializable(typeof(MigrateResult))]
+    [JsonSerializable(typeof(DoctorResult))]
     internal partial class CliJsonContext : JsonSerializerContext
     {
         /// <summary>
