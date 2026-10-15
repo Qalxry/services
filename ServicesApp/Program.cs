@@ -22,7 +22,8 @@ namespace ServicesApp
         [STAThread]
         static void Main(string[] args)
         {
-            if (args.Length >= 2 && args[0] == "--service-wrapper")
+            // 兼容旧版本创建、尚未迁移到独立包装器 servicesvc.exe 的服务
+            if (args.Length >= 2 && args[0] == Services.Core.Helpers.ServiceUtils.WrapperArgument)
             {
                 // Fix: Ensure CurrentDirectory is set to app folder, not System32
                 // This is crucial for loading dependencies correctly when running as a Service

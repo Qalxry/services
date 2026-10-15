@@ -12,6 +12,10 @@
     <ProjectReference Include="..\ServicesApp\ServicesApp.csproj"
                       Publish="true"
                       Properties="RuntimeIdentifier=win-x64;SelfContained=false;PublishSingleFile=false" />
+    <!-- 服务包装器：自包含单文件，服务的 ImagePath 指向它 -->
+    <ProjectReference Include="..\Services.Wrapper\Services.Wrapper.csproj"
+                      Publish="true"
+                      Properties="RuntimeIdentifier=win-x64;SelfContained=true;PublishSingleFile=true" />
     <!-- 命令行工具：自包含单文件，与 ServicesApp.exe 安装到同一目录 -->
     <ProjectReference Include="..\Services.Cli\Services.Cli.csproj"
                       Publish="true"
@@ -31,6 +35,12 @@
       <SuppressRootDirectory>true</SuppressRootDirectory>
     </HarvestDirectory>
     <BindPath Include="obj\$(Platform)\$(Configuration)\publish\Services.Cli" />
+    <HarvestDirectory Include="obj\$(Platform)\$(Configuration)\publish\Services.Wrapper">
+      <ComponentGroupName>WrapperFiles</ComponentGroupName>
+      <DirectoryRefId>INSTALLFOLDER</DirectoryRefId>
+      <SuppressRootDirectory>true</SuppressRootDirectory>
+    </HarvestDirectory>
+    <BindPath Include="obj\$(Platform)\$(Configuration)\publish\Services.Wrapper" />
   </ItemGroup>
 
   <ItemGroup>

@@ -13,7 +13,8 @@ namespace Services.Cli
 {
     internal static class CliApp
     {
-        private const string WrapperExeName = "ServicesApp.exe";
+        // 旧版本的包装器（GUI 程序兼容 --service-wrapper），找不到独立包装器 servicesvc.exe 时使用
+        private const string LegacyWrapperExeName = "ServicesApp.exe";
         private const int DefaultStartTimeoutSeconds = 30;
         private const int DefaultLogTail = 200;
         private const int FollowPollInterval = 500;
@@ -54,6 +55,7 @@ namespace Services.Cli
                 ValueOptions = new[] { "tail", "stream", "since" }, FlagOptions = new[] { "raw", "follow" },
                 ShortAliases = new Dictionary<string, string> { ["f"] = "follow" }, Handler = LogsAsync
             },
+            new CommandSpec { Name = "migrate", Summary = "将服务迁移到当前的独立包装器", Help = HelpText.Migrate, RequiresAdmin = true, Handler = MigrateAsync },
             new CommandSpec { Name = "version", Summary = "显示版本号", Help = HelpText.Version, Handler = VersionAsync },
             new CommandSpec { Name = "help", Summary = "显示帮助", Help = HelpText.HelpCommand, MaxPositionals = 1, Handler = HelpAsync },
         };
@@ -129,6 +131,32 @@ namespace Services.Cli
                 ?? throw new UsageException($"未知命令 '{args.Positionals[0]}'。", "help");
             Console.WriteLine(spec.Help);
             return Task.FromResult(ExitCodes.Success);
+        }
+
+        private static async Task<int> MigrateAsync(ParsedArgs args)
+        {
+            var wrapper = WindowsServiceManager.FindWrapperExecutable()
+                ?? throw new CliException(ExitCodes.Failure,
+                    $"未找到服务包装器 {ServiceUtils.WrapperExeName}，它应与 {HelpText.Tool}.exe 位于同一目录: {AppContext.BaseDirectory}");
+
+            var manager = await CreateManagerAsync();
+            manager.WrapperExePath = wrapper;
+            var migrated = manager.MigrateWrapper();
+
+            var message = migrated.Count == 0
+                ? "所有服务均已使用当前包装器，无需迁移。"
+                : $"已迁移 {migrated.Count} 个服务。正在运行的服务需重启后生效。";
+
+            if (args.Json)
+            {
+                WriteJson(new MigrateResult { WrapperPath = wrapper, Migrated = migrated, Message = message }, CliJsonContext.Readable.MigrateResult);
+            }
+            else
+            {
+                Console.WriteLine(message);
+                foreach (var id in migrated) Console.WriteLine($"  {id}");
+            }
+            return ExitCodes.Success;
         }
 
         private static Task<int> VersionAsync(ParsedArgs args)
@@ -618,13 +646,19 @@ namespace Services.Cli
             return null;
         }
 
+        /// <summary>
+        /// 包装器路径：优先同目录的 servicesvc.exe，其次兼容旧版本的 ServicesApp.exe
+        /// </summary>
         private static string ResolveWrapperPath()
         {
-            var path = Path.Combine(AppContext.BaseDirectory, WrapperExeName);
-            if (!File.Exists(path))
-                throw new CliException(ExitCodes.Failure,
-                    $"未找到 {WrapperExeName}（服务由它以包装器方式运行），它应与 {HelpText.Tool}.exe 位于同一目录: {AppContext.BaseDirectory}");
-            return path;
+            var wrapper = WindowsServiceManager.FindWrapperExecutable();
+            if (wrapper != null) return wrapper;
+
+            var legacy = Path.Combine(AppContext.BaseDirectory, LegacyWrapperExeName);
+            if (File.Exists(legacy)) return legacy;
+
+            throw new CliException(ExitCodes.Failure,
+                $"未找到服务包装器 {ServiceUtils.WrapperExeName}，它应与 {HelpText.Tool}.exe 位于同一目录: {AppContext.BaseDirectory}");
         }
 
         private static async Task StartAndWaitAsync(WindowsServiceManager manager, string id, int timeoutSeconds)

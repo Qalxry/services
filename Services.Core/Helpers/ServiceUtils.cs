@@ -18,6 +18,11 @@ namespace Services.Core.Helpers
         public const uint SERVICE_CONFIG_DESCRIPTION = 1;
         public const uint SERVICE_CONFIG_FAILURE_ACTIONS_FLAG = 4;
 
+        /// <summary>独立服务包装器的文件名，与 ServicesApp.exe / servicesctl.exe 位于同一目录</summary>
+        public const string WrapperExeName = "servicesvc.exe";
+        /// <summary>包装器命令行参数：&lt;包装器&gt; --service-wrapper &lt;服务ID&gt;</summary>
+        public const string WrapperArgument = "--service-wrapper";
+
         [StructLayout(LayoutKind.Sequential)]
         public struct SERVICE_FAILURE_ACTIONS_FLAG
         {
@@ -130,6 +135,14 @@ namespace Services.Core.Helpers
 
         [DllImport("advapi32.dll", SetLastError = true)]
         public static extern bool QueryServiceStatusEx(IntPtr hService, int infoLevel, IntPtr lpBuffer, uint cbBufSize, out uint pcbBytesNeeded);
+
+        /// <summary>
+        /// 服务 ImagePath：由包装器以服务 ID 启动
+        /// </summary>
+        public static string BuildWrapperCommand(string wrapperExePath, string serviceId)
+        {
+            return $"\"{wrapperExePath}\" {WrapperArgument} \"{serviceId}\"";
+        }
 
         /// <summary>
         /// 将多行启动参数合并为单行命令行（各行去除首尾空白、忽略空行，以空格拼接）

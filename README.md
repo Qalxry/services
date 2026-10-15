@@ -21,12 +21,15 @@
    - 现代化 Windows 11 风格界面。
    - 托盘图标支持。
    - 管理员权限检测与提权。
-4. **命令行工具 `servicesctl`**：
+4. **独立服务包装器 `servicesvc`**：
+   - 服务由轻量的 `servicesvc.exe` 运行并监管目标程序，与界面程序解耦；更新或关闭界面不影响服务。
+   - 旧版本创建的服务在打开 ServicesApp 或执行 `servicesctl migrate` 时自动迁移（重启服务后生效）。
+5. **命令行工具 `servicesctl`**：
    - 支持服务的增删改查、启停与日志查看，适合脚本与 AI 调用。
 
 ### 命令行工具
 
-`servicesctl.exe` 与 `ServicesApp.exe` 位于同一目录（MSI 安装后会自动加入系统 PATH）。
+`servicesctl.exe`、`servicesvc.exe` 与 `ServicesApp.exe` 位于同一目录（MSI 安装后会自动加入系统 PATH）。
 所有命令均为非交互式，支持 `--json` 输出与明确的退出码，完整说明见内置帮助：
 
 ```powershell

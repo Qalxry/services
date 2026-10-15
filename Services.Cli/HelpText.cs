@@ -82,8 +82,8 @@ namespace Services.Cli
                   - list / get / logs 为只读命令，普通权限即可运行；其余命令会修改系统服务，
                     需要在“以管理员身份运行”的终端中执行，否则返回退出码 4。
                   - 只管理由 ServicesApp 创建的服务（GUI 与 CLI 创建的服务完全相同）。
-                  - 服务实际由 ServicesApp.exe 以包装器方式运行，{{Tool}}.exe 需与 ServicesApp.exe
-                    位于同一目录，否则 create 会失败。
+                  - 服务由包装器 servicesvc.exe 运行并监管目标程序，{{Tool}}.exe 需与它位于同一目录，
+                    否则 create 会失败。旧版本创建的服务可用 '{{Tool}} migrate' 迁移到新包装器。
                   - GUI 正在运行时，命令行所做的修改会在 GUI 窗口获得焦点时自动刷新显示。
 
                 示例:
@@ -303,6 +303,24 @@ namespace Services.Cli
               {{Tool}} logs MyApp --follow --json --tail 0
 
             权限: 普通权限即可。
+            """;
+
+        public const string Migrate = $$"""
+            {{Tool}} migrate - 将所有服务的包装器路径更新为当前的 servicesvc.exe
+
+            用法:
+              {{Tool}} migrate [--json]
+
+            说明:
+              服务由包装器（ServicesApp 安装目录中的 servicesvc.exe）运行并监管目标程序。
+              旧版本创建的服务使用 ServicesApp.exe 作为包装器；安装目录变化后服务也会指向旧路径。
+              本命令将这些服务的包装器路径改为当前目录的 servicesvc.exe（ServicesApp 启动时也会自动执行）。
+              正在运行的服务继续使用旧包装器，下次启动（或执行 restart）后生效。
+
+            输出:
+              --json 时输出 { ok, wrapperPath, migrated: [服务ID...], message }。
+
+            权限: 需要管理员。
             """;
 
         public const string Version = $$"""

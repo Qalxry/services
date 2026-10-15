@@ -79,6 +79,15 @@ namespace Services.Cli
         public List<LogLineInfo> Lines { get; set; } = new();
     }
 
+    internal sealed class MigrateResult
+    {
+        public bool Ok { get; set; } = true;
+        public string WrapperPath { get; set; } = "";
+        /// <summary>被修改了包装器路径的服务 ID</summary>
+        public List<string> Migrated { get; set; } = new();
+        public string Message { get; set; } = "";
+    }
+
     internal sealed class VersionInfo
     {
         public string Version { get; set; } = "";
@@ -93,6 +102,7 @@ namespace Services.Cli
     [JsonSerializable(typeof(LogsResult))]
     [JsonSerializable(typeof(LogLineInfo))]
     [JsonSerializable(typeof(VersionInfo))]
+    [JsonSerializable(typeof(MigrateResult))]
     internal partial class CliJsonContext : JsonSerializerContext
     {
         /// <summary>

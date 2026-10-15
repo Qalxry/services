@@ -20,10 +20,91 @@ namespace Services.Core.Services
         private const int MaxConcurrentStatusQueries = 8;
 
         /// <summary>
-        /// 作为服务包装器注册的可执行文件路径。为空时使用当前进程（GUI 自身）；
-        /// 命令行工具需指定为 ServicesApp.exe，保证与 GUI 创建的服务一致。
+        /// 作为服务包装器注册的可执行文件路径。为空时优先使用同目录的 servicesvc.exe，
+        /// 不存在时（如开发调试）退回当前进程（ServicesApp.exe 兼容 --service-wrapper）。
         /// </summary>
         public string? WrapperExePath { get; set; }
+
+        /// <summary>
+        /// 查找与当前程序同目录的独立包装器 servicesvc.exe，不存在时返回 null
+        /// </summary>
+        public static string? FindWrapperExecutable()
+        {
+            var path = Path.Combine(AppContext.BaseDirectory, ServiceUtils.WrapperExeName);
+            return File.Exists(path) ? path : null;
+        }
+
+        /// <summary>
+        /// 将所有服务的 ImagePath 指向当前的独立包装器（旧版本创建的服务指向 ServicesApp.exe，
+        /// 或安装目录发生变化）。正在运行的服务在下次启动时生效。
+        /// </summary>
+        /// <returns>被修改的服务 ID；找不到 servicesvc.exe 时不做任何修改并返回空列表</returns>
+        public List<string> MigrateWrapper()
+        {
+            var wrapper = WrapperExePath ?? FindWrapperExecutable();
+            var migrated = new List<string>();
+            if (wrapper == null) return migrated;
+
+            List<string> ids;
+            lock (_lock)
+            {
+                ids = _services.Keys.ToList();
+            }
+
+            foreach (var id in ids)
+            {
+                using var key = Registry.LocalMachine.OpenSubKey($@"SYSTEM\CurrentControlSet\Services\{id}");
+                var imagePath = key?.GetValue("ImagePath", null, RegistryValueOptions.DoNotExpandEnvironmentNames) as string;
+                var expected = ServiceUtils.BuildWrapperCommand(wrapper, id);
+
+                // 只处理由包装器运行的服务，且仅在路径不同时修改
+                if (imagePath == null || !imagePath.Contains(ServiceUtils.WrapperArgument, StringComparison.Ordinal)) continue;
+                if (string.Equals(imagePath.Trim(), expected, StringComparison.OrdinalIgnoreCase)) continue;
+
+                ChangeServiceBinaryPath(id, expected);
+                migrated.Add(id);
+            }
+            return migrated;
+        }
+
+        private static void ChangeServiceBinaryPath(string serviceId, string binaryPath)
+        {
+            IntPtr scmHandle = ServiceUtils.OpenSCManager(null, null, ServiceUtils.SC_MANAGER_CONNECT);
+            if (scmHandle == IntPtr.Zero)
+                throw new Exception($"Failed to open SC Manager. Error: {Marshal.GetLastWin32Error()}");
+
+            try
+            {
+                IntPtr serviceHandle = ServiceUtils.OpenService(scmHandle, serviceId, ServiceUtils.SERVICE_CHANGE_CONFIG);
+                if (serviceHandle == IntPtr.Zero)
+                    throw new Exception($"Failed to open service. Error: {Marshal.GetLastWin32Error()}");
+
+                try
+                {
+                    if (!ServiceUtils.ChangeServiceConfig(
+                            serviceHandle,
+                            ServiceUtils.SERVICE_NO_CHANGE,
+                            ServiceUtils.SERVICE_NO_CHANGE,
+                            ServiceUtils.SERVICE_NO_CHANGE,
+                            binaryPath,
+                            null,
+                            IntPtr.Zero,
+                            null,
+                            null,
+                            null,
+                            null))
+                        throw new Exception($"Failed to change service binary path. Error: {Marshal.GetLastWin32Error()}");
+                }
+                finally
+                {
+                    ServiceUtils.CloseServiceHandle(serviceHandle);
+                }
+            }
+            finally
+            {
+                ServiceUtils.CloseServiceHandle(scmHandle);
+            }
+        }
 
         public WindowsServiceManager()
         {
@@ -137,11 +218,11 @@ namespace Services.Core.Services
                         if (key != null) throw new Exception($"Service {serviceName} already exists");
                     }
 
-                    string currentExe = WrapperExePath ?? Process.GetCurrentProcess().MainModule?.FileName
+                    string currentExe = WrapperExePath ?? FindWrapperExecutable() ?? Process.GetCurrentProcess().MainModule?.FileName
                         ?? throw new Exception("Cannot determine current executable path");
 
                     // Construct command safely
-                    string wrapperCmd = $"\"{currentExe}\" --service-wrapper \"{serviceName}\"";
+                    string wrapperCmd = ServiceUtils.BuildWrapperCommand(currentExe, serviceName);
 
                     // Use P/Invoke to create service
                     IntPtr scmHandle = ServiceUtils.OpenSCManager(null, null, ServiceUtils.SC_MANAGER_CREATE_SERVICE);

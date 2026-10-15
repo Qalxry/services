@@ -53,5 +53,13 @@ namespace Services.Tests
         {
             Assert.Equal("--name \"a  b\" --flag", ServiceUtils.NormalizeArgs("--name \"a  b\"\n--flag"));
         }
+
+        [Fact]
+        public void BuildWrapperCommand_QuotesPathAndServiceId()
+        {
+            var command = ServiceUtils.BuildWrapperCommand(@"C:\Program Files\ServicesApp\servicesvc.exe", "WinSvcMgr_App_1234abcd");
+
+            Assert.Equal(@"""C:\Program Files\ServicesApp\servicesvc.exe"" --service-wrapper ""WinSvcMgr_App_1234abcd""", command);
+        }
     }
 }

@@ -53,6 +53,7 @@
     <Feature Id="Main" Title="ServicesApp">
       <ComponentGroupRef Id="AppFiles" />
       <ComponentGroupRef Id="CliFiles" />
+      <ComponentGroupRef Id="WrapperFiles" />
       <ComponentRef Id="Shortcuts" />
       <ComponentRef Id="CliPathEnv" />
     </Feature>
