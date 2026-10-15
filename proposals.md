@@ -23,7 +23,7 @@ stdout/stderr 日志、GUI 与 CLI 管理、JSON 输出。以下为生产服务�
 | 2 | 优雅停止（Ctrl+C / 自定义停止命令 + 超时强制结束） | P0 必须 | 已完成 |
 | 3 | 放弃重启时以失败状态退出，触发 SCM 恢复策略 | P0 必须 | 已完成 |
 | 4 | 运行账户（LocalSystem / LocalService / NetworkService / 虚拟账户 / 指定用户） | P1 生产 | 已完成 |
-| 5 | 服务级环境变量 | P1 生产 | 待办 |
+| 5 | 服务级环境变量 | P1 生产 | 已完成 |
 | 6 | 日志：行时间戳、总大小上限、`logs --follow` | P1 生产 | 已完成 |
 | 7 | 运行状态：启动时间、上次退出码、重启次数 | P1 生产 | 待办 |
 | 8 | 服务依赖与延迟自动启动 | P2 增强 | 待办 |
@@ -113,6 +113,10 @@ stdout/stderr 日志、GUI 与 CLI 管理、JSON 输出。以下为生产服务�
 - GUI 表单新增多行“环境变量”输入；CLI `--env KEY=VALUE`（可重复）、`--unset-env KEY`、`--clear-env`。
 
 **验收**：设置后目标程序可读取到对应变量；`get --json` 输出 `environment` 对象。
+
+**已知限制（后续加固）**：变量值以明文保存在 `Services\<ID>\Parameters`，该键默认对本机普通用户可读，
+且会显示在 GUI 详情与 `get` 输出中。存放密钥时建议后续收紧 `Parameters` 键的 ACL
+（仅 SYSTEM、Administrators 与服务运行账户可读），或改用 DPAPI 加密存储。
 
 ## 6. 日志改进（P1）
 

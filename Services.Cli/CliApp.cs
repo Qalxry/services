@@ -21,10 +21,12 @@ namespace Services.Cli
 
         private static readonly string[] ConfigValueOptions =
             { "exe", "workdir", "args", "description", "startup", "restart-delay", "max-restarts", "restart-reset",
-              "stop-mode", "stop-command", "stop-timeout", "account" };
+              "stop-mode", "stop-command", "stop-timeout", "account", "env", "unset-env" };
+
+        private static readonly string[] ConfigRepeatableOptions = { "env", "unset-env" };
 
         private static readonly string[] ConfigFlagOptions =
-            { "auto-restart", "no-auto-restart", "backoff", "no-backoff", "password-stdin" };
+            { "auto-restart", "no-auto-restart", "backoff", "no-backoff", "password-stdin", "clear-env" };
 
         private static readonly List<CommandSpec> Commands = new()
         {
@@ -34,6 +36,7 @@ namespace Services.Cli
             {
                 Name = "create", Summary = "创建服务", Help = HelpText.Create, RequiresAdmin = true,
                 ValueOptions = ConfigValueOptions.Append("name").ToArray(),
+                RepeatableOptions = ConfigRepeatableOptions,
                 FlagOptions = ConfigFlagOptions.Append("start").ToArray(),
                 Handler = CreateAsync
             },
@@ -42,6 +45,7 @@ namespace Services.Cli
                 Name = "update", Summary = "修改服务配置", Help = HelpText.Update, RequiresAdmin = true,
                 MinPositionals = 1, MaxPositionals = 1,
                 ValueOptions = ConfigValueOptions.Append("name").ToArray(),
+                RepeatableOptions = ConfigRepeatableOptions,
                 FlagOptions = ConfigFlagOptions.Append("restart").ToArray(),
                 Handler = UpdateAsync
             },
@@ -610,6 +614,35 @@ namespace Services.Cli
                 changed++;
             }
 
+            // 环境变量按 clear → unset → set 的顺序处理，因此可在一条命令中重置并重新设置
+            var unsetEnv = args.GetValues("unset-env");
+            var setEnv = args.GetValues("env");
+            if (args.HasFlag("clear-env") || unsetEnv.Count > 0 || setEnv.Count > 0)
+            {
+                var environment = EnvironmentVariables.Clone(config.Environment);
+                if (args.HasFlag("clear-env")) environment.Clear();
+                foreach (var key in unsetEnv)
+                {
+                    if (string.IsNullOrWhiteSpace(key))
+                        throw new UsageException("--unset-env 的变量名不能为空。", args.Command);
+                    environment.Remove(key.Trim());
+                }
+                foreach (var entry in setEnv)
+                {
+                    try
+                    {
+                        var (key, value) = EnvironmentVariables.ParseEntry(entry);
+                        environment[key] = value;
+                    }
+                    catch (ArgumentException ex)
+                    {
+                        throw new UsageException($"--env 参数错误：{ex.Message}（应为 KEY=VALUE）", args.Command);
+                    }
+                }
+                config.Environment = environment;
+                changed++;
+            }
+
             if (config.StopMode == ServiceStopMode.Command && string.IsNullOrWhiteSpace(config.StopCommand))
                 throw new UsageException("--stop-mode command 需要同时指定 --stop-command。", args.Command);
 
@@ -824,6 +857,9 @@ namespace Services.Cli
                     Command = string.IsNullOrEmpty(s.StopCommand) ? null : s.StopCommand,
                     TimeoutSeconds = s.StopTimeoutSeconds
                 },
+                Environment = s.Environment
+                    .OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
+                    .ToDictionary(pair => pair.Key, pair => pair.Value),
                 CreatedAt = s.CreatedAt,
                 LatestLogPath = logManager.GetLatestLogPath(s.Id)
             };
@@ -872,6 +908,7 @@ namespace Services.Cli
                 ("程序路径", info.ExePath),
                 ("工作目录", info.WorkingDir),
                 ("启动参数", info.CommandLineArgs),
+                ("环境变量", string.Join("\n", info.Environment.Select(pair => $"{pair.Key}={pair.Value}"))),
                 ("创建时间", info.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss")),
                 ("最新日志", info.LatestLogPath),
             };
@@ -879,7 +916,9 @@ namespace Services.Cli
             int width = rows.Max(r => DisplayWidth(r.Label));
             foreach (var (label, value) in rows)
             {
-                Console.WriteLine($"{PadDisplay(label, width)}  {(string.IsNullOrWhiteSpace(value) ? "-" : value)}");
+                // 多行的值（如环境变量）从第二行起缩进到值所在的列
+                var text = string.IsNullOrWhiteSpace(value) ? "-" : value.Replace("\n", "\n" + new string(' ', width + 2));
+                Console.WriteLine($"{PadDisplay(label, width)}  {text}");
             }
         }
 

@@ -31,9 +31,23 @@ namespace Services.Tests
             {
                 return Enum.GetValues(type).Cast<object>().First(v => !Equals(v, current));
             }
+            if (type == typeof(IReadOnlyDictionary<string, string>))
+            {
+                return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [$"{property.Name}Key{seed}"] = $"value-{seed}" };
+            }
 
             throw new NotSupportedException(
                 $"测试辅助方法尚不支持属性 {property.DeclaringType!.Name}.{property.Name} 的类型 {type}，请扩展 NonDefaultValue。");
+        }
+
+        /// <summary>
+        /// 属性值比较：字典按内容比较，其余按 Equals
+        /// </summary>
+        private static bool ValuesEqual(object? left, object? right)
+        {
+            if (left is IReadOnlyDictionary<string, string> a && right is IReadOnlyDictionary<string, string> b)
+                return a.Count == b.Count && a.All(pair => b.TryGetValue(pair.Key, out var value) && value == pair.Value);
+            return Equals(left, right);
         }
 
         private static void FillWithNonDefaultValues(object target, IEnumerable<PropertyInfo> properties)
@@ -58,10 +72,43 @@ namespace Services.Tests
 
             var missed = properties
                 .Where(p => p.Name != nameof(Service.Id))
-                .Where(p => !Equals(p.GetValue(source), p.GetValue(target)))
+                .Where(p => !ValuesEqual(p.GetValue(source), p.GetValue(target)))
                 .Select(p => p.Name)
                 .ToList();
             Assert.True(missed.Count == 0, "Service.CopyFrom 未复制以下属性：" + string.Join(", ", missed));
+        }
+
+        [Fact]
+        public void CopyFrom_DoesNotShareEnvironmentInstance()
+        {
+            var source = new Service { Environment = new Dictionary<string, string> { ["A"] = "1" } };
+            var target = new Service();
+
+            target.CopyFrom(source);
+
+            Assert.NotSame(source.Environment, target.Environment);
+            Assert.Equal("1", target.Environment["A"]);
+        }
+
+        [Fact]
+        public void FromService_DoesNotShareEnvironmentInstance()
+        {
+            var service = new Service { Environment = new Dictionary<string, string> { ["A"] = "1" } };
+
+            var config = ServiceConfig.FromService(service);
+
+            Assert.NotSame(service.Environment, config.Environment);
+            Assert.Equal("1", config.Environment["A"]);
+        }
+
+        [Fact]
+        public void Environment_DefaultsToEmptyAndIsCaseInsensitive()
+        {
+            Assert.Empty(new Service().Environment);
+            Assert.Empty(new ServiceConfig().Environment);
+
+            var config = ServiceConfig.FromService(new Service { Environment = new Dictionary<string, string> { ["Path"] = "x" } });
+            Assert.Equal("x", config.Environment["PATH"]);
         }
 
         [Fact]
@@ -114,7 +161,7 @@ namespace Services.Tests
             var config = ServiceConfig.FromService(service);
 
             var missed = configProperties
-                .Where(p => !Equals(serviceProperties[p.Name].GetValue(service), p.GetValue(config)))
+                .Where(p => !ValuesEqual(serviceProperties[p.Name].GetValue(service), p.GetValue(config)))
                 .Select(p => p.Name)
                 .ToList();
             Assert.True(missed.Count == 0, "ServiceConfig.FromService 未正确赋值以下属性：" + string.Join(", ", missed));
@@ -136,7 +183,7 @@ namespace Services.Tests
 
             foreach (var property in configProperties)
             {
-                Assert.False(Equals(property.GetValue(defaults), property.GetValue(config)),
+                Assert.False(ValuesEqual(property.GetValue(defaults), property.GetValue(config)),
                     $"属性 {property.Name} 的测试值与默认值相同，无法检测漏赋值");
             }
         }

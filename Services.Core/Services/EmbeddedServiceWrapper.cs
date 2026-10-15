@@ -28,6 +28,7 @@ namespace Services.Core.Services
         private ServiceStopMode _stopMode = ServiceStopMode.Kill;
         private string _stopCommand = "";
         private int _stopTimeoutSeconds = StopPolicyDefaults.TimeoutSeconds;
+        private IReadOnlyDictionary<string, string> _environment = new Dictionary<string, string>();
         private (string ExePath, string Args, string WorkingDir) _config;
         private int _restartCount = 0;
         private DateTime _lastRestartTime = DateTime.MinValue;
@@ -55,6 +56,7 @@ namespace Services.Core.Services
                 _config = config;
                 LoadRestartPolicy();
                 LoadStopPolicy();
+                LoadEnvironment();
                 SyncFailureActionsFlag();
 
                 InitLogger();
@@ -294,6 +296,16 @@ namespace Services.Core.Services
             catch { }
         }
 
+        private void LoadEnvironment()
+        {
+            try
+            {
+                using var key = Registry.LocalMachine.OpenSubKey($@"SYSTEM\CurrentControlSet\Services\{_serviceName}\Parameters");
+                _environment = EnvironmentVariables.ParseLenient(key?.GetValue("Environment") as string[]);
+            }
+            catch { }
+        }
+
         private (string ExePath, string Args, string WorkingDir) LoadConfig()
         {
             using var key = Registry.LocalMachine.OpenSubKey($@"SYSTEM\CurrentControlSet\Services\{_serviceName}\Parameters");
@@ -403,6 +415,8 @@ namespace Services.Core.Services
                     StandardOutputEncoding = System.Text.Encoding.UTF8,
                     StandardErrorEncoding = System.Text.Encoding.UTF8
                 };
+                // 在继承的环境基础上叠加服务级环境变量，值中的 %VAR% 引用在此展开
+                EnvironmentVariables.Apply(psi.Environment, _environment, Environment.ExpandEnvironmentVariables);
 
                 _process = new Process { StartInfo = psi };
 

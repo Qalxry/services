@@ -49,6 +49,12 @@ namespace Services.Cli
                                     非 localsystem 账户需能读取程序与工作目录；日志目录写权限会自动授予
               --password-stdin      从标准输入读取用户密码（一行），避免密码出现在命令行与历史记录中。
                                     更新时仅在切换为该用户或更换用户名时必需，否则保持原密码
+              --env <KEY=VALUE>     为程序设置环境变量，可重复指定；叠加在服务继承的系统环境之上，同名时覆盖。
+                                    值中的 %VAR% 会在启动时展开，例如 --env "PATH=%PATH%;C:\tools"；
+                                    值可为空（KEY=）。更新时与已有变量合并，同名者被覆盖
+              --unset-env <KEY>     移除该服务已设置的某个环境变量，可重复指定
+              --clear-env           清空该服务已设置的所有环境变量
+                                    同一命令中的处理顺序：--clear-env → --unset-env → --env
             """;
 
         public static string Overview(IEnumerable<CommandSpec> commands)
@@ -134,6 +140,7 @@ namespace Services.Cli
               restartPolicy     { delaySeconds, maxRestarts (0=不限), resetMinutes, backoff }
               stopPolicy        { mode (kill | ctrl-c | command), command, timeoutSeconds }
               account           { type (localsystem | localservice | networkservice | virtual | user), name }
+              environment       服务级环境变量对象 { 变量名: 值 }（按变量名排序，值为未展开的原始文本），未设置时为 {}
               createdAt         创建时间（ISO 8601）
               latestLogPath     最新日志文件路径，尚无日志时为 null
 
@@ -156,7 +163,7 @@ namespace Services.Cli
               --start               创建后立即启动并等待其进入运行状态（最多 30 秒）
 
             默认值:
-              启动类型 auto；不自动重启；重启策略 5 秒 / 5 次 / 10 分钟 / 指数退避；停止方式 kill。
+              启动类型 auto；不自动重启；重启策略 5 秒 / 5 次 / 10 分钟 / 指数退避；停止方式 kill；无自定义环境变量。
 
             输出:
               成功后输出新服务的信息；--json 时输出 { ok, action, id, message, service }，
@@ -195,6 +202,7 @@ namespace Services.Cli
               {{Tool}} update WinSvcMgr_MyApp_1a2b3c4d --startup manual --no-auto-restart
               {{Tool}} update nginx --stop-mode command --stop-command "{exe} -s quit" --stop-timeout 60
               {{Tool}} update MyApp --account virtual --restart
+              {{Tool}} update MyApp --env NODE_ENV=production --env "PATH=%PATH%;C:\tools" --unset-env DEBUG --restart
               "<密码>" | {{Tool}} update MyApp --account .\svcuser --password-stdin     (PowerShell)
             """;
 

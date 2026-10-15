@@ -10,12 +10,14 @@ namespace Services.Tests
             string[]? flagOptions = null,
             int min = 0,
             int max = 1,
-            IReadOnlyDictionary<string, string>? shortAliases = null) => new()
+            IReadOnlyDictionary<string, string>? shortAliases = null,
+            string[]? repeatableOptions = null) => new()
         {
             Name = "demo",
             Summary = "测试命令",
             Help = "demo help",
-            ValueOptions = valueOptions ?? new[] { "name", "args", "delay" },
+            ValueOptions = valueOptions ?? new[] { "name", "args", "delay", "env" },
+            RepeatableOptions = repeatableOptions ?? Array.Empty<string>(),
             FlagOptions = flagOptions ?? new[] { "auto-restart", "no-auto-restart", "force" },
             MinPositionals = min,
             MaxPositionals = max,
@@ -84,6 +86,66 @@ namespace Services.Tests
             var parsed = Parse(Spec(), "--name", "a", "--name=b");
 
             Assert.Equal("b", parsed.GetValue("name"));
+        }
+
+        [Fact]
+        public void Parse_RepeatableOption_CollectsAllValuesInOrder()
+        {
+            var parsed = Parse(Spec(repeatableOptions: new[] { "env" }), "--env", "A=1", "--env=B=2", "--ENV", "C=3");
+
+            Assert.Equal(new[] { "A=1", "B=2", "C=3" }, parsed.GetValues("env"));
+            Assert.Equal("C=3", parsed.GetValue("env"));
+            Assert.True(parsed.HasValue("env"));
+        }
+
+        [Fact]
+        public void Parse_RepeatableOption_SingleOccurrence()
+        {
+            var parsed = Parse(Spec(repeatableOptions: new[] { "env" }), "--env", "A=1");
+
+            Assert.Equal(new[] { "A=1" }, parsed.GetValues("env"));
+        }
+
+        [Fact]
+        public void Parse_RepeatableOption_KeepsEmptyAndDashValues()
+        {
+            var parsed = Parse(Spec(repeatableOptions: new[] { "env" }), "--env=", "--env", "-x");
+
+            Assert.Equal(new[] { "", "-x" }, parsed.GetValues("env"));
+        }
+
+        [Fact]
+        public void Parse_RepeatableOption_MissingValueIsError()
+        {
+            var ex = Assert.Throws<UsageException>(() => Parse(Spec(repeatableOptions: new[] { "env" }), "--env", "A=1", "--env"));
+
+            Assert.Contains("--env", ex.Message);
+        }
+
+        [Fact]
+        public void Parse_NonRepeatableOption_StillLastWinsAndGetValuesReturnsOnlyThat()
+        {
+            var parsed = Parse(Spec(repeatableOptions: new[] { "env" }), "--name", "a", "--name", "b");
+
+            Assert.Equal("b", parsed.GetValue("name"));
+            Assert.Equal(new[] { "b" }, parsed.GetValues("name"));
+        }
+
+        [Fact]
+        public void Parse_OptionNotDeclaredRepeatable_LastOneWins()
+        {
+            var parsed = Parse(Spec(), "--env", "A=1", "--env", "B=2");
+
+            Assert.Equal(new[] { "B=2" }, parsed.GetValues("env"));
+        }
+
+        [Fact]
+        public void GetValues_NotProvided_ReturnsEmpty()
+        {
+            var parsed = Parse(Spec(repeatableOptions: new[] { "env" }));
+
+            Assert.Empty(parsed.GetValues("env"));
+            Assert.Empty(parsed.GetValues("name"));
         }
 
         [Fact]

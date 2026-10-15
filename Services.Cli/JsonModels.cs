@@ -25,6 +25,8 @@ namespace Services.Cli
         public RestartPolicyInfo RestartPolicy { get; set; } = new();
         public StopPolicyInfo StopPolicy { get; set; } = new();
         public AccountInfo Account { get; set; } = new();
+        /// <summary>服务级环境变量（名称 → 值，按名称排序）；值中的 %VAR% 引用在启动时展开。未设置时为空对象</summary>
+        public Dictionary<string, string> Environment { get; set; } = new();
         public DateTime CreatedAt { get; set; }
         public string? LatestLogPath { get; set; }
     }
@@ -98,6 +100,7 @@ namespace Services.Cli
         WriteIndented = true)]
     [JsonSerializable(typeof(ServiceInfo))]
     [JsonSerializable(typeof(List<ServiceInfo>))]
+    [JsonSerializable(typeof(Dictionary<string, string>))]
     [JsonSerializable(typeof(ActionResult))]
     [JsonSerializable(typeof(LogsResult))]
     [JsonSerializable(typeof(LogLineInfo))]

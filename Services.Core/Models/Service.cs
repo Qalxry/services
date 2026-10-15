@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using Services.Core.Helpers;
 
 namespace Services.Core.Models
 {
@@ -102,6 +103,9 @@ namespace Services.Core.Models
         /// <summary>SCM 中记录的运行账户名（ObjectName），如 LocalSystem、NT SERVICE\&lt;服务ID&gt;、.\user</summary>
         public string? AccountName { get; set; }
 
+        /// <summary>服务级环境变量（启动目标程序时叠加在继承的环境之上，值可用 %VAR% 引用现有变量）；变量名不区分大小写</summary>
+        public IReadOnlyDictionary<string, string> Environment { get; set; } = EnvironmentVariables.Clone(null);
+
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }
 
@@ -128,6 +132,7 @@ namespace Services.Core.Models
             StopTimeoutSeconds = other.StopTimeoutSeconds;
             AccountType = other.AccountType;
             AccountName = other.AccountName;
+            Environment = EnvironmentVariables.Clone(other.Environment);
             CreatedAt = other.CreatedAt;
             UpdatedAt = other.UpdatedAt;
         }
@@ -165,6 +170,8 @@ namespace Services.Core.Models
         public ServiceAccountType AccountType { get; set; } = ServiceAccountType.LocalSystem;
         /// <summary>指定用户时的账户名（如 .\svcuser、DOMAIN\svcuser）；其他类型忽略。密码不保存在配置中。</summary>
         public string? AccountName { get; set; }
+        /// <summary>服务级环境变量；变量名不区分大小写，空表示不额外设置</summary>
+        public IReadOnlyDictionary<string, string> Environment { get; set; } = EnvironmentVariables.Clone(null);
         public ServiceStartupType StartupType { get; set; } = ServiceStartupType.Auto;
 
         /// <summary>
@@ -189,6 +196,7 @@ namespace Services.Core.Models
                 StopTimeoutSeconds = service.StopTimeoutSeconds,
                 AccountType = service.AccountType,
                 AccountName = service.AccountName,
+                Environment = EnvironmentVariables.Clone(service.Environment),
                 StartupType = service.StartupType
             };
         }

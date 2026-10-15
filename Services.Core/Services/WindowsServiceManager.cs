@@ -177,6 +177,7 @@ namespace Services.Core.Services
                 StopTimeoutSeconds = s.StopTimeoutSeconds,
                 AccountType = s.AccountType,
                 AccountName = s.AccountName,
+                Environment = EnvironmentVariables.Clone(s.Environment),
                 CreatedAt = s.CreatedAt,
                 UpdatedAt = s.UpdatedAt
             };
@@ -492,6 +493,8 @@ namespace Services.Core.Services
 
             if (config.StopMode == ServiceStopMode.Command && string.IsNullOrWhiteSpace(config.StopCommand))
                 throw new ArgumentException("Stop command is required when stop mode is 'command'.");
+
+            EnvironmentVariables.Validate(config.Environment);
         }
 
         private static void WriteParameters(RegistryKey paramsKey, ServiceConfig config)
@@ -509,6 +512,7 @@ namespace Services.Core.Services
             paramsKey.SetValue("StopMode", (int)config.StopMode, RegistryValueKind.DWord);
             paramsKey.SetValue("StopCommand", config.StopCommand ?? "");
             paramsKey.SetValue("StopTimeoutSeconds", config.StopTimeoutSeconds, RegistryValueKind.DWord);
+            paramsKey.SetValue("Environment", EnvironmentVariables.FormatLines(config.Environment), RegistryValueKind.MultiString);
         }
 
         private static string BuildServiceDescription(ServiceConfig config)
@@ -810,6 +814,7 @@ namespace Services.Core.Services
             var stopCommand = paramsKey.GetValue("StopCommand") as string;
             var stopTimeoutSeconds = paramsKey.GetValue("StopTimeoutSeconds") is int stopTimeoutVal && stopTimeoutVal > 0
                 ? stopTimeoutVal : StopPolicyDefaults.TimeoutSeconds;
+            var environment = EnvironmentVariables.ParseLenient(paramsKey.GetValue("Environment") as string[]);
 
             var createdAtStr = paramsKey.GetValue("CreatedAt") as string;
             DateTime createdAt = DateTime.Now;
@@ -841,6 +846,7 @@ namespace Services.Core.Services
                 StopTimeoutSeconds = stopTimeoutSeconds,
                 AccountType = ServiceAccounts.ParseObjectName(accountName),
                 AccountName = string.IsNullOrWhiteSpace(accountName) ? ServiceAccounts.LocalSystemName : accountName,
+                Environment = environment,
                 CreatedAt = createdAt,
                 UpdatedAt = DateTime.Now,
                 StartupType = startupType,

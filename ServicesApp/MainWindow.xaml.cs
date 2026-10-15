@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Data;
 using Microsoft.UI;
+using Services.Core.Helpers;
 using Services.Core.Services;
 using Services.Core.Models;
 using System.Collections.ObjectModel;
@@ -596,6 +597,7 @@ namespace ServicesApp
             AddRow("可执行文件路径", service.ExePath, true);
             AddRow("工作目录", service.WorkingDir, true);
             AddRow("启动参数", service.Args, true);
+            AddRow("环境变量", EnvironmentVariables.Format(service.Environment), true);
             AddRow("创建时间", service.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss"));
 
             var dialog = new ContentDialog

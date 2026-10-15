@@ -41,6 +41,11 @@ namespace Services.Cli
         public required string Summary { get; init; }
         public required string Help { get; init; }
         public string[] ValueOptions { get; init; } = Array.Empty<string>();
+        /// <summary>
+        /// 可重复指定的值选项（必须已在 ValueOptions 中声明），如 --env A=1 --env B=2；
+        /// 通过 <see cref="ParsedArgs.GetValues"/> 取得全部值。其余值选项重复指定时后者覆盖前者。
+        /// </summary>
+        public string[] RepeatableOptions { get; init; } = Array.Empty<string>();
         public string[] FlagOptions { get; init; } = Array.Empty<string>();
         /// <summary>
         /// 短选项别名：单个字符（不含 "-"）到长选项名（不含 "--"）的映射，如 { "f", "follow" } 使 -f 等同于 --follow。
@@ -56,6 +61,7 @@ namespace Services.Cli
     internal sealed class ParsedArgs
     {
         private readonly Dictionary<string, string> _values = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, List<string>> _repeatedValues = new(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _flags = new(StringComparer.OrdinalIgnoreCase);
 
         public string Command { get; }
@@ -74,6 +80,15 @@ namespace Services.Cli
         public bool HasValue(string name) => _values.ContainsKey(name);
 
         public string? GetValue(string name) => _values.TryGetValue(name, out var value) ? value : null;
+
+        /// <summary>
+        /// 返回选项的全部值（按出现顺序）。可重复选项返回每次指定的值；其他选项最多一个值；未指定时为空列表。
+        /// </summary>
+        public IReadOnlyList<string> GetValues(string name)
+        {
+            if (_repeatedValues.TryGetValue(name, out var values)) return values;
+            return _values.TryGetValue(name, out var value) ? new[] { value } : Array.Empty<string>();
+        }
 
         public int? GetInt(string name, int min, int max)
         {
@@ -163,6 +178,12 @@ namespace Services.Cli
                         inlineValue = tokens[++i];
                     }
                     result._values[name] = inlineValue;
+                    if (spec.RepeatableOptions.Contains(name, StringComparer.OrdinalIgnoreCase))
+                    {
+                        if (!result._repeatedValues.TryGetValue(name, out var values))
+                            result._repeatedValues[name] = values = new List<string>();
+                        values.Add(inlineValue);
+                    }
                 }
                 else
                 {

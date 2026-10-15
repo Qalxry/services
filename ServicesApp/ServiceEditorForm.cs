@@ -1,7 +1,9 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Services.Core.Helpers;
 using Services.Core.Models;
 using System;
+using System.Collections.Generic;
 using System.Linq;
 
 namespace ServicesApp
@@ -18,6 +20,7 @@ namespace ServicesApp
         private readonly TextBox _argsBox;
         private readonly TextBox _workDirBox;
         private readonly TextBox _descriptionBox;
+        private readonly TextBox _environmentBox;
         private readonly CheckBox _autoRestartCheck;
         private readonly NumberBox _restartDelayBox;
         private readonly NumberBox _maxRestartsBox;
@@ -104,11 +107,28 @@ namespace ServicesApp
             Grid.SetColumn(_descriptionBox, 0); Grid.SetRow(_descriptionBox, 4);
             Grid.SetColumnSpan(_descriptionBox, 2);
 
+            // Environment variables (multi-line KEY=VALUE)
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            _environmentBox = new TextBox
+            {
+                Header = "环境变量 (可选)",
+                PlaceholderText = "NODE_ENV=production",
+                Description = "每行一个 KEY=VALUE；值中可用 %PATH% 等引用现有变量",
+                AcceptsReturn = true,
+                TextWrapping = TextWrapping.Wrap,
+                FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas"),
+                MinHeight = 60,
+                MaxHeight = 120
+            };
+            ScrollViewer.SetVerticalScrollBarVisibility(_environmentBox, ScrollBarVisibility.Auto);
+            Grid.SetColumn(_environmentBox, 0); Grid.SetRow(_environmentBox, 5);
+            Grid.SetColumnSpan(_environmentBox, 2);
+
             // Auto Restart
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
             _autoRestartCheck = new CheckBox { Content = "失败自动重启", IsChecked = false, VerticalAlignment = VerticalAlignment.Center };
-            Grid.SetColumn(_autoRestartCheck, 0); Grid.SetRow(_autoRestartCheck, 5);
+            Grid.SetColumn(_autoRestartCheck, 0); Grid.SetRow(_autoRestartCheck, 6);
 
             // Restart policy (visible when auto restart is enabled)
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -141,7 +161,7 @@ namespace ServicesApp
                 Background = GetThemeBrush("CardBackgroundFillColorSecondaryBrush"),
                 Visibility = Visibility.Collapsed
             };
-            Grid.SetColumn(_restartPolicyPanel, 0); Grid.SetRow(_restartPolicyPanel, 6);
+            Grid.SetColumn(_restartPolicyPanel, 0); Grid.SetRow(_restartPolicyPanel, 7);
             Grid.SetColumnSpan(_restartPolicyPanel, 2);
             _autoRestartCheck.Checked += (s, e) => _restartPolicyPanel.Visibility = Visibility.Visible;
             _autoRestartCheck.Unchecked += (s, e) => _restartPolicyPanel.Visibility = Visibility.Collapsed;
@@ -152,11 +172,11 @@ namespace ServicesApp
             _stopModeBox.Items.Add("直接结束进程");
             _stopModeBox.Items.Add("发送 Ctrl+C（控制台程序）");
             _stopModeBox.Items.Add("执行停止命令");
-            Grid.SetColumn(_stopModeBox, 0); Grid.SetRow(_stopModeBox, 7);
+            Grid.SetColumn(_stopModeBox, 0); Grid.SetRow(_stopModeBox, 8);
 
             _stopTimeoutBox = CreateNumberBox("停止超时 (秒)", 1, StopPolicyDefaults.MaxTimeoutSeconds, StopPolicyDefaults.TimeoutSeconds);
             _stopTimeoutBox.Description = "超时未退出则强制结束进程树";
-            Grid.SetColumn(_stopTimeoutBox, 1); Grid.SetRow(_stopTimeoutBox, 7);
+            Grid.SetColumn(_stopTimeoutBox, 1); Grid.SetRow(_stopTimeoutBox, 8);
 
             // Stop command
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -166,7 +186,7 @@ namespace ServicesApp
                 PlaceholderText = "{exe} -s quit",
                 Description = "在工作目录中通过 cmd 执行；占位符：{exe} 程序路径、{workdir} 工作目录（自动加引号）、{pid} 进程 ID"
             };
-            Grid.SetColumn(_stopCommandBox, 0); Grid.SetRow(_stopCommandBox, 8);
+            Grid.SetColumn(_stopCommandBox, 0); Grid.SetRow(_stopCommandBox, 9);
             Grid.SetColumnSpan(_stopCommandBox, 2);
             _stopModeBox.SelectionChanged += (s, e) => UpdateStopControls();
 
@@ -178,7 +198,7 @@ namespace ServicesApp
             _accountBox.Items.Add("网络服务（NetworkService）");
             _accountBox.Items.Add("虚拟账户（NT SERVICE\\服务ID）");
             _accountBox.Items.Add("指定用户");
-            Grid.SetColumn(_accountBox, 0); Grid.SetRow(_accountBox, 9);
+            Grid.SetColumn(_accountBox, 0); Grid.SetRow(_accountBox, 10);
 
             _accountHint = new TextBlock
             {
@@ -188,19 +208,19 @@ namespace ServicesApp
                 Opacity = 0.7,
                 VerticalAlignment = VerticalAlignment.Bottom
             };
-            Grid.SetColumn(_accountHint, 1); Grid.SetRow(_accountHint, 9);
+            Grid.SetColumn(_accountHint, 1); Grid.SetRow(_accountHint, 10);
 
             // User name | Password
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             _accountNameBox = new TextBox { Header = "账户名", PlaceholderText = @".\svcuser 或 DOMAIN\svcuser" };
-            Grid.SetColumn(_accountNameBox, 0); Grid.SetRow(_accountNameBox, 10);
+            Grid.SetColumn(_accountNameBox, 0); Grid.SetRow(_accountNameBox, 11);
 
             _passwordBox = new PasswordBox
             {
                 Header = "密码",
                 PlaceholderText = existing?.AccountType == ServiceAccountType.User ? "留空表示不修改密码" : ""
             };
-            Grid.SetColumn(_passwordBox, 1); Grid.SetRow(_passwordBox, 10);
+            Grid.SetColumn(_passwordBox, 1); Grid.SetRow(_passwordBox, 11);
             _accountBox.SelectionChanged += (s, e) => UpdateAccountControls();
 
             // Validation message
@@ -211,7 +231,7 @@ namespace ServicesApp
                 TextWrapping = TextWrapping.Wrap,
                 Visibility = Visibility.Collapsed
             };
-            Grid.SetColumn(_errorText, 0); Grid.SetRow(_errorText, 11);
+            Grid.SetColumn(_errorText, 0); Grid.SetRow(_errorText, 12);
             Grid.SetColumnSpan(_errorText, 2);
 
             // Add children
@@ -221,6 +241,7 @@ namespace ServicesApp
             grid.Children.Add(workDirRow);
             grid.Children.Add(_argsBox);
             grid.Children.Add(_descriptionBox);
+            grid.Children.Add(_environmentBox);
             grid.Children.Add(_autoRestartCheck);
             grid.Children.Add(_restartPolicyPanel);
             grid.Children.Add(_stopModeBox);
@@ -239,6 +260,7 @@ namespace ServicesApp
                 _argsBox.Text = existing.Args ?? "";
                 _workDirBox.Text = existing.WorkingDir ?? "";
                 _descriptionBox.Text = existing.Description ?? "";
+                _environmentBox.Text = NormalizeLineEndings(EnvironmentVariables.Format(existing.Environment));
                 _autoRestartCheck.IsChecked = existing.AutoRestart;
                 _restartPolicyPanel.Visibility = existing.AutoRestart ? Visibility.Visible : Visibility.Collapsed;
                 _restartDelayBox.Value = existing.RestartDelaySeconds;
@@ -394,6 +416,10 @@ namespace ServicesApp
             {
                 error = "可执行文件不存在，请检查路径。";
             }
+            else if (!TryParseEnvironment(out _, out var environmentError))
+            {
+                error = environmentError;
+            }
             else if (SelectedStopMode == ServiceStopMode.Command && string.IsNullOrWhiteSpace(_stopCommandBox.Text))
             {
                 error = "停止方式为“执行停止命令”时必须填写停止命令。";
@@ -413,8 +439,25 @@ namespace ServicesApp
             return error == null;
         }
 
+        private bool TryParseEnvironment(out Dictionary<string, string> environment, out string? error)
+        {
+            try
+            {
+                environment = EnvironmentVariables.ParseText(_environmentBox.Text);
+                error = null;
+                return true;
+            }
+            catch (ArgumentException ex)
+            {
+                environment = EnvironmentVariables.Clone(null);
+                error = ex.Message;
+                return false;
+            }
+        }
+
         public ServiceConfig ToConfig()
         {
+            TryParseEnvironment(out var environment, out _);
             return new ServiceConfig
             {
                 Name = _nameBox.Text.Trim(),
@@ -432,6 +475,7 @@ namespace ServicesApp
                 StopTimeoutSeconds = ReadNumber(_stopTimeoutBox, StopPolicyDefaults.TimeoutSeconds),
                 AccountType = SelectedAccountType,
                 AccountName = SelectedAccountType == ServiceAccountType.User ? _accountNameBox.Text.Trim() : null,
+                Environment = environment,
                 StartupType = (ServiceStartupType)(_startupBox.SelectedIndex + (int)ServiceStartupType.Auto)
             };
         }
