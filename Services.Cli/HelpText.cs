@@ -65,6 +65,16 @@ namespace Services.Cli
               --clear-depends       清空该服务的所有依赖（不能与 --depends-on 同时使用）
             """;
 
+        /// <summary>
+        /// 命令摘要：取自帮助首行 "servicesctl &lt;命令&gt; - &lt;摘要&gt;"，命令表与文档共用，保证一致
+        /// </summary>
+        public static string Summary(string help)
+        {
+            var firstLine = help.Replace("\r\n", "\n").Split('\n')[0];
+            int dash = firstLine.IndexOf(" - ", StringComparison.Ordinal);
+            return dash >= 0 ? firstLine.Substring(dash + 3).Trim() : firstLine.Trim();
+        }
+
         public static string Overview(IEnumerable<CommandSpec> commands)
         {
             var list = string.Join(Environment.NewLine,

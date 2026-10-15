@@ -62,6 +62,14 @@ servicesctl doctor                           # 诊断：程序 / 目录 / 包装
 
 `list` / `get` / `logs` 普通权限即可运行；其余会修改系统服务的命令需在管理员终端中执行。
 
+### 文档
+
+- [命令行参考](docs/cli.md)（由 `servicesctl` 内置帮助自动生成）
+- [配置与数据存储](docs/configuration.md)：文件位置、注册表结构、声明式配置文件格式
+- [架构](docs/architecture.md)：组件、Core 分层、包装器生命周期
+- [故障排查](docs/troubleshooting.md)
+- [参与开发](CONTRIBUTING.md)、[更新日志](CHANGELOG.md)
+
 ### 预览
 
 ![主界面](/.github/demo/1.png)

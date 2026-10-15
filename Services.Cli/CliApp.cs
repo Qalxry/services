@@ -22,11 +22,11 @@ namespace Services.Cli
 
         private static readonly List<CommandSpec> Commands = new()
         {
-            new CommandSpec { Name = "list", Summary = "列出所有服务", Help = HelpText.List, FlagOptions = new[] { "show-secrets" }, Handler = ListAsync },
-            new CommandSpec { Name = "get", Summary = "查看服务详情", Help = HelpText.Get, MinPositionals = 1, MaxPositionals = 1, FlagOptions = new[] { "show-secrets" }, Handler = GetAsync },
+            new CommandSpec { Name = "list", Summary = HelpText.Summary(HelpText.List), Help = HelpText.List, FlagOptions = new[] { "show-secrets" }, Handler = ListAsync },
+            new CommandSpec { Name = "get", Summary = HelpText.Summary(HelpText.Get), Help = HelpText.Get, MinPositionals = 1, MaxPositionals = 1, FlagOptions = new[] { "show-secrets" }, Handler = GetAsync },
             new CommandSpec
             {
-                Name = "create", Summary = "创建服务", Help = HelpText.Create, RequiresAdmin = true,
+                Name = "create", Summary = HelpText.Summary(HelpText.Create), Help = HelpText.Create, RequiresAdmin = true,
                 ValueOptions = ConfigValueOptions.Append("name").ToArray(),
                 RepeatableOptions = ConfigRepeatableOptions,
                 FlagOptions = ConfigFlagOptions.Append("start").ToArray(),
@@ -34,43 +34,43 @@ namespace Services.Cli
             },
             new CommandSpec
             {
-                Name = "update", Summary = "修改服务配置", Help = HelpText.Update, RequiresAdmin = true,
+                Name = "update", Summary = HelpText.Summary(HelpText.Update), Help = HelpText.Update, RequiresAdmin = true,
                 MinPositionals = 1, MaxPositionals = 1,
                 ValueOptions = ConfigValueOptions.Append("name").ToArray(),
                 RepeatableOptions = ConfigRepeatableOptions,
                 FlagOptions = ConfigFlagOptions.Append("restart").ToArray(),
                 Handler = UpdateAsync
             },
-            new CommandSpec { Name = "delete", Summary = "停止并删除服务", Help = HelpText.Delete, RequiresAdmin = true, MinPositionals = 1, MaxPositionals = 1, Handler = DeleteAsync },
-            new CommandSpec { Name = "start", Summary = "启动服务", Help = HelpText.Start, RequiresAdmin = true, MinPositionals = 1, MaxPositionals = 1, ValueOptions = new[] { "timeout" }, Handler = StartAsync },
-            new CommandSpec { Name = "stop", Summary = "停止服务", Help = HelpText.Stop, RequiresAdmin = true, MinPositionals = 1, MaxPositionals = 1, Handler = StopAsync },
-            new CommandSpec { Name = "restart", Summary = "重启服务", Help = HelpText.Restart, RequiresAdmin = true, MinPositionals = 1, MaxPositionals = 1, ValueOptions = new[] { "timeout" }, Handler = RestartAsync },
+            new CommandSpec { Name = "delete", Summary = HelpText.Summary(HelpText.Delete), Help = HelpText.Delete, RequiresAdmin = true, MinPositionals = 1, MaxPositionals = 1, Handler = DeleteAsync },
+            new CommandSpec { Name = "start", Summary = HelpText.Summary(HelpText.Start), Help = HelpText.Start, RequiresAdmin = true, MinPositionals = 1, MaxPositionals = 1, ValueOptions = new[] { "timeout" }, Handler = StartAsync },
+            new CommandSpec { Name = "stop", Summary = HelpText.Summary(HelpText.Stop), Help = HelpText.Stop, RequiresAdmin = true, MinPositionals = 1, MaxPositionals = 1, Handler = StopAsync },
+            new CommandSpec { Name = "restart", Summary = HelpText.Summary(HelpText.Restart), Help = HelpText.Restart, RequiresAdmin = true, MinPositionals = 1, MaxPositionals = 1, ValueOptions = new[] { "timeout" }, Handler = RestartAsync },
             new CommandSpec
             {
-                Name = "logs", Summary = "查看服务日志", Help = HelpText.Logs, MinPositionals = 1, MaxPositionals = 1,
+                Name = "logs", Summary = HelpText.Summary(HelpText.Logs), Help = HelpText.Logs, MinPositionals = 1, MaxPositionals = 1,
                 ValueOptions = new[] { "tail", "stream", "since" }, FlagOptions = new[] { "raw", "follow" },
                 ShortAliases = new Dictionary<string, string> { ["f"] = "follow" }, Handler = LogsAsync
             },
             new CommandSpec
             {
-                Name = "export", Summary = "导出服务配置（JSON）", Help = HelpText.Export, MaxPositionals = int.MaxValue,
+                Name = "export", Summary = HelpText.Summary(HelpText.Export), Help = HelpText.Export, MaxPositionals = int.MaxValue,
                 ValueOptions = new[] { "output" }, FlagOptions = new[] { "show-secrets" }, ShortAliases = new Dictionary<string, string> { ["o"] = "output" }, Handler = ExportAsync
             },
             new CommandSpec
             {
                 // 是否需要管理员取决于是否 --dry-run 以及是否有实际修改，由处理函数自行检查
-                Name = "apply", Summary = "按配置文件创建 / 更新服务", Help = HelpText.Apply,
+                Name = "apply", Summary = HelpText.Summary(HelpText.Apply), Help = HelpText.Apply,
                 ValueOptions = new[] { "file" }, FlagOptions = new[] { "dry-run", "prune", "restart" },
                 ShortAliases = new Dictionary<string, string> { ["f"] = "file" }, Handler = ApplyAsync
             },
             new CommandSpec
             {
-                Name = "doctor", Summary = "诊断服务配置与权限问题", Help = HelpText.Doctor, MaxPositionals = int.MaxValue,
+                Name = "doctor", Summary = HelpText.Summary(HelpText.Doctor), Help = HelpText.Doctor, MaxPositionals = int.MaxValue,
                 FlagOptions = new[] { "all" }, Handler = DoctorAsync
             },
-            new CommandSpec { Name = "migrate", Summary = "将服务迁移到当前的独立包装器", Help = HelpText.Migrate, RequiresAdmin = true, Handler = MigrateAsync },
-            new CommandSpec { Name = "version", Summary = "显示版本号", Help = HelpText.Version, Handler = VersionAsync },
-            new CommandSpec { Name = "help", Summary = "显示帮助", Help = HelpText.HelpCommand, MaxPositionals = 1, Handler = HelpAsync },
+            new CommandSpec { Name = "migrate", Summary = HelpText.Summary(HelpText.Migrate), Help = HelpText.Migrate, RequiresAdmin = true, Handler = MigrateAsync },
+            new CommandSpec { Name = "version", Summary = HelpText.Summary(HelpText.Version), Help = HelpText.Version, Handler = VersionAsync },
+            new CommandSpec { Name = "help", Summary = HelpText.Summary(HelpText.HelpCommand), Help = HelpText.HelpCommand, MaxPositionals = 1, Handler = HelpAsync },
         };
 
         public static async Task<int> RunAsync(string[] args)
