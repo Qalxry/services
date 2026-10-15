@@ -121,7 +121,7 @@ namespace ServicesApp
                     case 1: style.Bold = true; break;
                     case 3: style.Italic = true; break;
                     case 4: style.Underline = true; break;
-                    case 21:
+                    case 21: style.Underline = true; break; // ECMA-48：双下划线，以单下划线显示
                     case 22: style.Bold = false; break;
                     case 23: style.Italic = false; break;
                     case 24: style.Underline = false; break;
@@ -151,14 +151,17 @@ namespace ServicesApp
             }
             if (mode == 2 && k + 4 < codes.Length)
             {
-                var color = Color.FromArgb(0xFF, (byte)codes[k + 2], (byte)codes[k + 3], (byte)codes[k + 4]);
+                int r = codes[k + 2], g = codes[k + 3], b = codes[k + 4];
                 k += 4;
-                return color;
+                return IsByte(r) && IsByte(g) && IsByte(b) ? Color.FromArgb(0xFF, (byte)r, (byte)g, (byte)b) : null;
             }
 
-            k += 1;
+            // 参数不完整或模式未知：其后的参数均属于该扩展颜色，全部跳过，避免被误当作普通样式码（如 1 = 粗体）
+            k = codes.Length - 1;
             return null;
         }
+
+        private static bool IsByte(int value) => value is >= 0 and <= 255;
 
         private static Color? Color256(int n, Color[] palette)
         {

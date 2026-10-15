@@ -24,6 +24,9 @@ jobs:
     - name: 还原依赖 (Restore)
       run: msbuild Services.sln /t:Restore /p:Configuration=Release
 
+    - name: 运行测试 (Test)
+      run: dotnet test Services.Tests/Services.Tests.csproj -c Release
+
     - name: 编译并发布单文件版 (Build & Publish Single File)
       run: |
         msbuild ServicesApp/ServicesApp.csproj `

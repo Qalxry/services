@@ -103,6 +103,13 @@ namespace Services.Cli
             {
                 var token = tokens[i];
 
+                // 需在位置参数判断之前处理，否则不以 "-" 开头的 "/?" 会被当作位置参数
+                if (!positionalOnly && (token == "-h" || token == "/?"))
+                {
+                    result._flags.Add("help");
+                    continue;
+                }
+
                 if (positionalOnly || !token.StartsWith("-", StringComparison.Ordinal) || token == "-")
                 {
                     result.Positionals.Add(token);
@@ -112,12 +119,6 @@ namespace Services.Cli
                 if (token == "--")
                 {
                     positionalOnly = true;
-                    continue;
-                }
-
-                if (token == "-h" || token == "/?")
-                {
-                    result._flags.Add("help");
                     continue;
                 }
 
