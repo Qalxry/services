@@ -32,6 +32,17 @@ namespace Services.Tests
 
         private static ServiceDefinition Minimal(string name = "App") => new() { Name = name, Exe = @"C:\Apps\app.exe" };
 
+        /// <summary>
+        /// 模拟已保存的服务：保存时未指定的工作目录会被补为程序所在目录（与 WriteParameters 一致）
+        /// </summary>
+        private static Service Existing(string id, string name) => new()
+        {
+            Id = id,
+            Name = name,
+            ExePath = @"C:\Apps\app.exe",
+            WorkingDir = Path.GetDirectoryName(@"C:\Apps\app.exe")
+        };
+
         [Fact]
         public void ExportThenImport_HasNoDifferences()
         {
@@ -185,6 +196,19 @@ namespace Services.Tests
             Assert.Empty(ConfigFileMapper.Diff(current, desired));
         }
 
+        private static Service WithArgs(Service service, string args)
+        {
+            service.Args = args;
+            return service;
+        }
+
+        private static Service WithUser(Service service, string accountName)
+        {
+            service.AccountType = ServiceAccountType.User;
+            service.AccountName = accountName;
+            return service;
+        }
+
         private static IReadOnlyList<ServiceConfig> Desired(params ServiceDefinition[] definitions) =>
             definitions.Select((d, i) => ConfigFileMapper.ToConfig(d, $"services[{i}]")).ToList();
 
@@ -193,9 +217,9 @@ namespace Services.Tests
         {
             var existing = new List<Service>
             {
-                new() { Id = "id-a", Name = "A", ExePath = @"C:\Apps\app.exe" },
-                new() { Id = "id-b", Name = "B", ExePath = @"C:\Apps\app.exe", Args = "--old" },
-                new() { Id = "id-c", Name = "C", ExePath = @"C:\Apps\app.exe" }
+                Existing("id-a", "A"),
+                WithArgs(Existing("id-b", "B"), "--old"),
+                Existing("id-c", "C")
             };
             var b = Minimal("b");
             b.Args = "--new";
@@ -211,7 +235,7 @@ namespace Services.Tests
         [Fact]
         public void Plan_WithoutPrune_KeepsUnlistedServices()
         {
-            var existing = new List<Service> { new() { Id = "id-c", Name = "C", ExePath = @"C:\Apps\app.exe" } };
+            var existing = new List<Service> { Existing("id-c", "C") };
 
             var plan = ApplyPlanner.Build(Desired(Minimal("A")), existing, prune: false, fileExists: _ => true);
 
@@ -231,8 +255,8 @@ namespace Services.Tests
         {
             var existing = new List<Service>
             {
-                new() { Id = "id-1", Name = "A", ExePath = @"C:\Apps\app.exe" },
-                new() { Id = "id-2", Name = "a", ExePath = @"C:\Apps\app.exe" }
+                Existing("id-1", "A"),
+                Existing("id-2", "a")
             };
 
             Assert.Throws<UsageException>(() => ApplyPlanner.Build(Desired(Minimal("A")), existing, false, _ => true));
@@ -254,7 +278,7 @@ namespace Services.Tests
         {
             var existing = new List<Service>
             {
-                new() { Id = "id-a", Name = "A", ExePath = @"C:\Apps\app.exe", AccountType = ServiceAccountType.User, AccountName = @".\svcuser" }
+                WithUser(Existing("id-a", "A"), @".\svcuser")
             };
             var entry = Minimal("A");
             entry.Account = @".\SVCUSER";
