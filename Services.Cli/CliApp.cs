@@ -11,7 +11,7 @@ using Services.Core.Services;
 
 namespace Services.Cli
 {
-    internal static class CliApp
+    internal static partial class CliApp
     {
         // 旧版本的包装器（GUI 程序兼容 --service-wrapper），找不到独立包装器 servicesvc.exe 时使用
         private const string LegacyWrapperExeName = "ServicesApp.exe";
@@ -58,6 +58,18 @@ namespace Services.Cli
                 Name = "logs", Summary = "查看服务日志", Help = HelpText.Logs, MinPositionals = 1, MaxPositionals = 1,
                 ValueOptions = new[] { "tail", "stream", "since" }, FlagOptions = new[] { "raw", "follow" },
                 ShortAliases = new Dictionary<string, string> { ["f"] = "follow" }, Handler = LogsAsync
+            },
+            new CommandSpec
+            {
+                Name = "export", Summary = "导出服务配置（JSON）", Help = HelpText.Export, MaxPositionals = int.MaxValue,
+                ValueOptions = new[] { "output" }, ShortAliases = new Dictionary<string, string> { ["o"] = "output" }, Handler = ExportAsync
+            },
+            new CommandSpec
+            {
+                // 是否需要管理员取决于是否 --dry-run 以及是否有实际修改，由处理函数自行检查
+                Name = "apply", Summary = "按配置文件创建 / 更新服务", Help = HelpText.Apply,
+                ValueOptions = new[] { "file" }, FlagOptions = new[] { "dry-run", "prune", "restart" },
+                ShortAliases = new Dictionary<string, string> { ["f"] = "file" }, Handler = ApplyAsync
             },
             new CommandSpec { Name = "migrate", Summary = "将服务迁移到当前的独立包装器", Help = HelpText.Migrate, RequiresAdmin = true, Handler = MigrateAsync },
             new CommandSpec { Name = "version", Summary = "显示版本号", Help = HelpText.Version, Handler = VersionAsync },

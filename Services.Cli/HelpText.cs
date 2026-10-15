@@ -104,6 +104,7 @@ namespace Services.Cli
                   {{Tool}} logs MyApp --tail 50 --stream stderr
                   {{Tool}} logs MyApp -f
                   {{Tool}} delete MyApp
+                  {{Tool}} export -o services.json      # 导出全部配置，修改后用 apply -f services.json 应用
                 """;
         }
 
@@ -330,6 +331,76 @@ namespace Services.Cli
               {{Tool}} logs MyApp --follow --json --tail 0
 
             权限: 普通权限即可。
+            """;
+
+        public const string Export = $$"""
+            {{Tool}} export - 导出服务配置为 JSON（可用于备份、版本管理，或修改后通过 apply 应用）
+
+            用法:
+              {{Tool}} export [<服务>...] [-o <文件>]
+
+            参数:
+              <服务>                要导出的服务（ID 或名称），可指定多个；省略时导出全部服务
+
+            选项:
+              -o, --output <文件>   写入文件（UTF-8）；省略或为 "-" 时输出到标准输出
+
+            输出格式（与 apply 的输入相同）:
+              {
+                "version": 1,
+                "services": [
+                  {
+                    "name": "MyApp",                     // 必需，按名称与已有服务匹配（不区分大小写）
+                    "description": "...",
+                    "exe": "C:\Apps\my-app.exe",       // 必需
+                    "args": "--port 8080",
+                    "workingDir": "C:\Apps",
+                    "startup": "auto",                   // auto | delayed-auto | manual | disabled
+                    "account": "virtual",                // localsystem | localservice | networkservice | virtual | 用户名
+                    "environment": { "NODE_ENV": "production" },
+                    "dependencies": [ "Tcpip" ],
+                    "autoRestart": true,
+                    "restartPolicy": { "delaySeconds": 5, "maxRestarts": 5, "resetMinutes": 10, "backoff": true },
+                    "stopPolicy": { "mode": "kill", "command": null, "timeoutSeconds": 30 }
+                  }
+                ]
+              }
+              不包含服务 ID、运行状态与密码。
+
+            权限: 普通权限即可。
+            """;
+
+        public const string Apply = $$"""
+            {{Tool}} apply - 按配置文件声明式地创建 / 更新（/ 删除）服务
+
+            用法:
+              {{Tool}} apply -f <文件> [--dry-run] [--prune] [--restart] [--json]
+
+            选项:
+              -f, --file <文件>     配置文件（格式见 '{{Tool}} help export'）；为 "-" 时从标准输入读取
+              --dry-run             只输出变更计划，不做任何修改（不需要管理员权限）
+              --prune               删除配置文件中不存在的服务（默认不删除，需显式指定）
+              --restart             更新后重启正在运行的服务，使新配置立即生效
+
+            规则:
+              - 按名称匹配已有服务：不存在则创建，存在且有差异则更新，无差异则保持不变。
+              - 条目中未写出的字段视为默认值（与 create 的默认值相同），即配置文件描述服务的完整配置。
+              - 配置文件中出现未知字段、取值非法、名称重复、可执行文件不存在时，在修改任何服务之前报错（退出码 2）。
+              - 配置文件不含密码：需要创建或切换到“指定用户”账户的服务会被拒绝，
+                请先用 '{{Tool}} update <服务> --account <用户> --password-stdin' 设置；账户不变时沿用原密码。
+              - 按顺序执行，遇到错误立即停止并报告已完成的部分（退出码 1）。
+
+            输出:
+              文本模式每行一个动作：+ 创建、~ 更新（列出变化的字段）、- 删除、= 不变。
+              --json 时输出 { ok, dryRun, actions: [{ action, name, id, changes, done, restarted }], message }，
+              action 为 create | update | delete | unchanged。
+
+            权限: --dry-run 或无需修改时普通权限即可；实际修改需要管理员。
+
+            示例:
+              {{Tool}} export -o services.json
+              {{Tool}} apply -f services.json --dry-run
+              {{Tool}} apply -f services.json --restart --json
             """;
 
         public const string Migrate = $$"""
