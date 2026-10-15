@@ -31,6 +31,7 @@ namespace Services.Core.Wrapper
                     LastExitCode = previous?.LastExitCode,
                     LastExitAt = previous?.LastExitAt,
                     LastFailureReason = previous?.LastFailureReason,
+                    LastFailureAt = previous?.LastFailureAt,
                     UpdatedAt = now
                 };
                 _store.Write(_state);
@@ -83,6 +84,10 @@ namespace Services.Core.Wrapper
             s.TotalRestarts = total;
         });
 
-        public void Failed(string reason) => Update(s => s.LastFailureReason = reason);
+        public void Failed(string reason) => Update(s =>
+        {
+            s.LastFailureReason = reason;
+            s.LastFailureAt = DateTime.Now;
+        });
     }
 }

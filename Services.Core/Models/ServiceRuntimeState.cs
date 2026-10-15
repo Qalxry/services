@@ -34,6 +34,9 @@ namespace Services.Core.Models
         /// <summary>包装器最近一次以失败状态停止的原因（放弃重启、程序不存在等）</summary>
         public string? LastFailureReason { get; set; }
 
+        /// <summary>记录 LastFailureReason 的时间（用于判断失败原因是否属于本次启动）</summary>
+        public DateTime? LastFailureAt { get; set; }
+
         public DateTime UpdatedAt { get; set; }
 
         /// <summary>

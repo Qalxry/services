@@ -53,6 +53,7 @@ namespace Services.Cli
         public DateTime? LastExitAt { get; set; }
         /// <summary>包装器最近一次以失败状态停止的原因</summary>
         public string? LastFailureReason { get; set; }
+        public DateTime? LastFailureAt { get; set; }
         public DateTime UpdatedAt { get; set; }
     }
 

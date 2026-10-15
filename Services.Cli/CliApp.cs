@@ -730,20 +730,39 @@ namespace Services.Cli
                 $"未找到服务包装器 {ServiceUtils.WrapperExeName}，它应与 {HelpText.Tool}.exe 位于同一目录: {AppContext.BaseDirectory}");
         }
 
+        /// <summary>
+        /// 启动服务并等待进入运行状态。服务在启动过程中停止（目标程序不存在、立即退出等）时立即失败，
+        /// 并附上包装器记录的失败原因，而不是等到超时。
+        /// </summary>
         private static async Task StartAndWaitAsync(WindowsServiceManager manager, string id, int timeoutSeconds)
         {
+            var startedAt = DateTime.Now;
             await manager.StartServiceAsync(id);
 
+            var deadline = DateTime.UtcNow.AddSeconds(timeoutSeconds);
             using var sc = new ServiceController(id);
-            try
-            {
-                sc.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(timeoutSeconds));
-            }
-            catch (System.ServiceProcess.TimeoutException)
+            while (true)
             {
                 sc.Refresh();
-                throw new CliException(ExitCodes.Failure,
-                    $"服务 '{id}' 在 {timeoutSeconds} 秒内未进入运行状态（当前: {sc.Status}）。可运行 '{HelpText.Tool} logs {id}' 查看原因。");
+                var status = sc.Status;
+                if (status == ServiceControllerStatus.Running) return;
+
+                // StartService 返回前 SCM 已将状态置为“启动中”，此后再看到“已停止”即表示启动失败
+                if (status == ServiceControllerStatus.Stopped)
+                {
+                    var state = new ServiceStateStore(new LogManager().GetLogDirectory()).Read(id);
+                    // 只采用本次启动之后记录的失败原因（状态文件保留了以前运行的原因）
+                    var reason = state?.LastFailureAt >= startedAt.AddSeconds(-1) ? state.LastFailureReason : null;
+                    throw new CliException(ExitCodes.Failure,
+                        $"服务 '{id}' 启动后立即停止" + (reason != null ? $"：{reason}" : "（目标程序可能已退出）") +
+                        $"。可运行 '{HelpText.Tool} logs {id}' 查看日志。");
+                }
+
+                if (DateTime.UtcNow >= deadline)
+                    throw new CliException(ExitCodes.Failure,
+                        $"服务 '{id}' 在 {timeoutSeconds} 秒内未进入运行状态（当前: {status}）。可运行 '{HelpText.Tool} logs {id}' 查看原因。");
+
+                await Task.Delay(200);
             }
         }
 
@@ -920,6 +939,7 @@ namespace Services.Cli
                 LastExitCode = state.LastExitCode,
                 LastExitAt = state.LastExitAt,
                 LastFailureReason = state.LastFailureReason,
+                LastFailureAt = state.LastFailureAt,
                 UpdatedAt = state.UpdatedAt
             };
         }
