@@ -26,7 +26,6 @@
   <ItemGroup>
     <Compile Include="..\Services.Cli\CommandLine.cs" Link="Linked\CommandLine.cs" />
     <Compile Include="..\Services.Cli\LogTimeParser.cs" Link="Linked\LogTimeParser.cs" />
-    <Compile Include="..\Services.Cli\ConfigFile.cs" Link="Linked\ConfigFile.cs" />
     <Compile Include="..\Services.Cli\HelpText.cs" Link="Linked\HelpText.cs" />
     <Compile Include="..\ServicesApp\AnsiParser.cs" Link="Linked\AnsiParser.cs" />
   </ItemGroup>

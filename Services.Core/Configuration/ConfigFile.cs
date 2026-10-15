@@ -4,13 +4,21 @@ using System.Text.Json.Serialization;
 using Services.Core.Helpers;
 using Services.Core.Models;
 
-namespace Services.Cli
+namespace Services.Core.Configuration
 {
+    /// <summary>
+    /// 配置文件内容或计划无效（格式错误、字段取值非法、名称冲突、程序不存在等）。消息包含出错位置，可直接展示给用户。
+    /// </summary>
+    public sealed class ConfigFileException : Exception
+    {
+        public ConfigFileException(string message) : base(message) { }
+    }
+
     /// <summary>
     /// 声明式配置文件（servicesctl export / apply）。按服务名称匹配，不包含服务 ID、运行状态与密码。
     /// 条目中未写出的字段视为默认值。
     /// </summary>
-    internal sealed class ConfigFile
+    public sealed class ConfigFile
     {
         public const int CurrentVersion = 1;
 
@@ -18,7 +26,7 @@ namespace Services.Cli
         public List<ServiceDefinition> Services { get; set; } = new();
     }
 
-    internal sealed class ServiceDefinition
+    public sealed class ServiceDefinition
     {
         public string? Name { get; set; }
         public string? Description { get; set; }
@@ -36,7 +44,7 @@ namespace Services.Cli
         public StopPolicyDefinition? StopPolicy { get; set; }
     }
 
-    internal sealed class RestartPolicyDefinition
+    public sealed class RestartPolicyDefinition
     {
         public int DelaySeconds { get; set; } = RestartPolicyDefaults.DelaySeconds;
         public int MaxRestarts { get; set; } = RestartPolicyDefaults.MaxRestarts;
@@ -44,7 +52,7 @@ namespace Services.Cli
         public bool Backoff { get; set; } = RestartPolicyDefaults.Backoff;
     }
 
-    internal sealed class StopPolicyDefinition
+    public sealed class StopPolicyDefinition
     {
         /// <summary>kill / ctrl-c / command，默认 kill</summary>
         public string Mode { get; set; } = "kill";
@@ -52,7 +60,7 @@ namespace Services.Cli
         public int TimeoutSeconds { get; set; } = StopPolicyDefaults.TimeoutSeconds;
     }
 
-    internal sealed class ApplyResult
+    public sealed class ApplyResult
     {
         public bool Ok { get; set; } = true;
         public bool DryRun { get; set; }
@@ -60,7 +68,7 @@ namespace Services.Cli
         public string Message { get; set; } = "";
     }
 
-    internal sealed class ApplyActionResult
+    public sealed class ApplyActionResult
     {
         /// <summary>create / update / delete / unchanged</summary>
         public string Action { get; set; } = "";
@@ -82,7 +90,7 @@ namespace Services.Cli
         AllowTrailingCommas = true)]
     [JsonSerializable(typeof(ConfigFile))]
     [JsonSerializable(typeof(ApplyResult))]
-    internal partial class ConfigFileJsonContext : JsonSerializerContext
+    public partial class ConfigFileJsonContext : JsonSerializerContext
     {
         public static ConfigFileJsonContext Readable { get; } = new(new JsonSerializerOptions
         {
@@ -100,25 +108,25 @@ namespace Services.Cli
     /// <summary>
     /// 配置文件条目与 Service / ServiceConfig 的相互转换及差异比较（纯逻辑，便于测试）
     /// </summary>
-    internal static class ConfigFileMapper
+    public static class ConfigFileMapper
     {
         public static string Serialize(ConfigFile file) =>
             JsonSerializer.Serialize(file, ConfigFileJsonContext.Readable.ConfigFile);
 
         /// <summary>
-        /// 解析配置文件；格式错误时抛出 UsageException，消息包含出错位置
+        /// 解析配置文件；格式错误时抛出 ConfigFileException，消息包含出错位置
         /// </summary>
         public static ConfigFile Deserialize(string json)
         {
             try
             {
                 return JsonSerializer.Deserialize(json, ConfigFileJsonContext.Readable.ConfigFile)
-                    ?? throw new UsageException("配置文件为空。", "apply");
+                    ?? throw new ConfigFileException("配置文件为空。");
             }
             catch (JsonException ex)
             {
                 var location = ex.Path != null ? $"（位置: {ex.Path}，行 {ex.LineNumber + 1}）" : "";
-                throw new UsageException($"配置文件格式错误{location}: {ex.Message}", "apply");
+                throw new ConfigFileException($"配置文件格式错误{location}: {ex.Message}");
             }
         }
 
@@ -161,9 +169,9 @@ namespace Services.Cli
         public static ServiceConfig ToConfig(ServiceDefinition definition, string path)
         {
             if (string.IsNullOrWhiteSpace(definition.Name))
-                throw new UsageException($"{path}.name 不能为空。", "apply");
+                throw new ConfigFileException($"{path}.name 不能为空。");
             if (string.IsNullOrWhiteSpace(definition.Exe))
-                throw new UsageException($"{path}.exe 不能为空。", "apply");
+                throw new ConfigFileException($"{path}.exe 不能为空。");
 
             var restart = definition.RestartPolicy ?? new RestartPolicyDefinition();
             var stop = definition.StopPolicy ?? new StopPolicyDefinition();
@@ -197,14 +205,14 @@ namespace Services.Cli
             };
 
             if (config.StopMode == ServiceStopMode.Command && string.IsNullOrWhiteSpace(config.StopCommand))
-                throw new UsageException($"{path}.stopPolicy.command 不能为空（mode 为 command）。", "apply");
+                throw new ConfigFileException($"{path}.stopPolicy.command 不能为空（mode 为 command）。");
             try
             {
                 EnvironmentVariables.Validate(config.Environment);
             }
             catch (ArgumentException ex)
             {
-                throw new UsageException($"{path}.environment: {ex.Message}", "apply");
+                throw new ConfigFileException($"{path}.environment: {ex.Message}");
             }
 
             return config;
@@ -272,7 +280,7 @@ namespace Services.Cli
                 "delayed-auto" => (ServiceStartupType.Auto, true),
                 "manual" => (ServiceStartupType.Manual, false),
                 "disabled" => (ServiceStartupType.Disabled, false),
-                _ => throw new UsageException($"{path}.startup 只能是 auto、delayed-auto、manual 或 disabled，实际为 '{value}'。", "apply")
+                _ => throw new ConfigFileException($"{path}.startup 只能是 auto、delayed-auto、manual 或 disabled，实际为 '{value}'。")
             };
 
         private static (ServiceAccountType Type, string? Name) ParseAccount(string? value)
@@ -295,13 +303,13 @@ namespace Services.Cli
                 "kill" => ServiceStopMode.Kill,
                 "ctrl-c" => ServiceStopMode.CtrlC,
                 "command" => ServiceStopMode.Command,
-                _ => throw new UsageException($"{path}.stopPolicy.mode 只能是 kill、ctrl-c 或 command，实际为 '{value}'。", "apply")
+                _ => throw new ConfigFileException($"{path}.stopPolicy.mode 只能是 kill、ctrl-c 或 command，实际为 '{value}'。")
             };
 
         private static int CheckRange(int value, int min, int max, string field)
         {
             if (value < min || value > max)
-                throw new UsageException($"{field} 必须在 {min} 到 {max} 之间，实际为 {value}。", "apply");
+                throw new ConfigFileException($"{field} 必须在 {min} 到 {max} 之间，实际为 {value}。");
             return value;
         }
 
@@ -315,119 +323,6 @@ namespace Services.Cli
                 if (!b.TryGetValue(key, out var other) || other != value) return false;
             }
             return true;
-        }
-    }
-
-    /// <summary>
-    /// apply 的变更计划（纯逻辑，文件存在性检查由调用方注入，便于测试）
-    /// </summary>
-    internal static class ApplyPlanner
-    {
-        /// <summary>
-        /// 按名称（不区分大小写）匹配已有服务，生成创建 / 更新 / 删除 / 不变的计划，并在执行前完成全部校验
-        /// </summary>
-        public static List<ApplyPlanItem> Build(IReadOnlyList<ServiceConfig> desired, IReadOnlyList<Service> existing, bool prune, Func<string, bool> fileExists)
-        {
-            var plan = new List<ApplyPlanItem>();
-
-            foreach (var config in desired)
-            {
-                var matches = existing.Where(s => string.Equals(s.Name, config.Name, StringComparison.OrdinalIgnoreCase)).ToList();
-                if (matches.Count > 1)
-                    throw new UsageException($"名称 '{config.Name}' 匹配到多个已有服务（{string.Join(", ", matches.Select(s => s.Id))}），请先重命名或删除重复的服务。", "apply");
-
-                if (matches.Count == 0)
-                {
-                    RejectUserAccount(config, "创建");
-                    plan.Add(new ApplyPlanItem("create", config.Name, null, new List<string>(), config));
-                    continue;
-                }
-
-                var service = matches[0];
-                var changes = ConfigFileMapper.Diff(ServiceConfig.FromService(service), config);
-                if (changes.Contains("account")) RejectUserAccount(config, "切换到");
-                if (config.AccountType == ServiceAccountType.User && service.AccountType == ServiceAccountType.User)
-                {
-                    // 同一用户账户：沿用 SCM 中保存的账户名与密码
-                    config.AccountName = service.AccountName;
-                }
-
-                plan.Add(new ApplyPlanItem(changes.Count == 0 ? "unchanged" : "update", config.Name, service.Id, changes, config));
-            }
-
-            if (prune)
-            {
-                foreach (var service in existing)
-                {
-                    if (!desired.Any(c => string.Equals(c.Name, service.Name, StringComparison.OrdinalIgnoreCase)))
-                        plan.Add(new ApplyPlanItem("delete", service.Name, service.Id, new List<string>(), null));
-                }
-            }
-
-            foreach (var item in plan.Where(p => p.Action is "create" or "update"))
-            {
-                if (!fileExists(item.Config!.ExePath))
-                    throw new UsageException($"服务 '{item.Name}' 的可执行文件不存在: {item.Config.ExePath}", "apply");
-            }
-            return plan;
-        }
-
-        /// <summary>
-        /// 指定用户需要密码，配置文件中不保存密码，因此 apply 不负责创建或切换到用户账户
-        /// </summary>
-        private static void RejectUserAccount(ServiceConfig config, string verb)
-        {
-            if (config.AccountType != ServiceAccountType.User) return;
-            throw new UsageException(
-                $"服务 '{config.Name}' 需要{verb}用户账户 '{config.AccountName}'，配置文件不包含密码，无法通过 apply 完成。" +
-                $"请先使用 '{HelpText.Tool} update <服务> --account {config.AccountName} --password-stdin' 设置账户。", "apply");
-        }
-
-        public static string ToActionText(string action) => action switch
-        {
-            "create" => "创建",
-            "update" => "更新",
-            "delete" => "删除",
-            _ => "保持"
-        };
-    }
-
-    internal sealed class ApplyPlanItem
-    {
-        public string Action { get; }
-        public string Name { get; }
-        public string? Id { get; set; }
-        public List<string> Changes { get; }
-        public ServiceConfig? Config { get; }
-        public bool Done { get; set; }
-        public bool Restarted { get; set; }
-
-        public ApplyPlanItem(string action, string name, string? id, List<string> changes, ServiceConfig? config)
-        {
-            Action = action;
-            Name = name;
-            Id = id;
-            Changes = changes;
-            Config = config;
-        }
-
-        public ApplyActionResult ToResult() => new()
-        {
-            Action = Action,
-            Name = Name,
-            Id = Id,
-            Changes = Changes,
-            Done = Done,
-            Restarted = Restarted
-        };
-
-        public string ToText(bool dryRun)
-        {
-            var symbol = Action switch { "create" => "+", "update" => "~", "delete" => "-", _ => "=" };
-            var detail = Action == "update" ? $"（{string.Join(", ", Changes)}）" : "";
-            var id = Id != null ? $" [{Id}]" : "";
-            var status = dryRun || Action == "unchanged" ? "" : Done ? (Restarted ? "  已完成，已重启" : "  已完成") : "  未执行";
-            return $"{symbol} {ApplyPlanner.ToActionText(Action)} {Name}{id}{detail}{status}";
         }
     }
 }

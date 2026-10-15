@@ -1,4 +1,4 @@
-using Services.Cli;
+using Services.Core.Configuration;
 using Services.Core.Models;
 using Xunit;
 
@@ -86,19 +86,19 @@ namespace Services.Tests
         }
 
         [Fact]
-        public void Deserialize_UnknownField_ThrowsUsageExceptionWithPath()
+        public void Deserialize_UnknownField_ThrowsConfigFileExceptionWithPath()
         {
             var json = """{ "version": 1, "services": [ { "name": "A", "exe": "C:\\a.exe", "exePath": "x" } ] }""";
 
-            var ex = Assert.Throws<UsageException>(() => ConfigFileMapper.Deserialize(json));
+            var ex = Assert.Throws<ConfigFileException>(() => ConfigFileMapper.Deserialize(json));
 
             Assert.Contains("exePath", ex.Message);
         }
 
         [Fact]
-        public void Deserialize_InvalidJson_ThrowsUsageException()
+        public void Deserialize_InvalidJson_ThrowsConfigFileException()
         {
-            Assert.Throws<UsageException>(() => ConfigFileMapper.Deserialize("{ not json"));
+            Assert.Throws<ConfigFileException>(() => ConfigFileMapper.Deserialize("{ not json"));
         }
 
         [Fact]
@@ -133,7 +133,7 @@ namespace Services.Tests
         [InlineData("A", null, "services[3].exe")]
         public void ToConfig_MissingRequiredField_Throws(string? name, string? exe, string expectedPath)
         {
-            var ex = Assert.Throws<UsageException>(() => ConfigFileMapper.ToConfig(new ServiceDefinition { Name = name, Exe = exe }, "services[3]"));
+            var ex = Assert.Throws<ConfigFileException>(() => ConfigFileMapper.ToConfig(new ServiceDefinition { Name = name, Exe = exe }, "services[3]"));
 
             Assert.Contains(expectedPath, ex.Message);
         }
@@ -143,19 +143,19 @@ namespace Services.Tests
         {
             var badStartup = Minimal();
             badStartup.Startup = "sometimes";
-            Assert.Contains("services[0].startup", Assert.Throws<UsageException>(() => ConfigFileMapper.ToConfig(badStartup, "services[0]")).Message);
+            Assert.Contains("services[0].startup", Assert.Throws<ConfigFileException>(() => ConfigFileMapper.ToConfig(badStartup, "services[0]")).Message);
 
             var badRange = Minimal();
             badRange.RestartPolicy = new RestartPolicyDefinition { DelaySeconds = 0 };
-            Assert.Contains("restartPolicy.delaySeconds", Assert.Throws<UsageException>(() => ConfigFileMapper.ToConfig(badRange, "services[0]")).Message);
+            Assert.Contains("restartPolicy.delaySeconds", Assert.Throws<ConfigFileException>(() => ConfigFileMapper.ToConfig(badRange, "services[0]")).Message);
 
             var missingCommand = Minimal();
             missingCommand.StopPolicy = new StopPolicyDefinition { Mode = "command" };
-            Assert.Contains("stopPolicy.command", Assert.Throws<UsageException>(() => ConfigFileMapper.ToConfig(missingCommand, "services[0]")).Message);
+            Assert.Contains("stopPolicy.command", Assert.Throws<ConfigFileException>(() => ConfigFileMapper.ToConfig(missingCommand, "services[0]")).Message);
 
             var badEnv = Minimal();
             badEnv.Environment = new Dictionary<string, string> { ["A=B"] = "x" };
-            Assert.Contains("services[0].environment", Assert.Throws<UsageException>(() => ConfigFileMapper.ToConfig(badEnv, "services[0]")).Message);
+            Assert.Contains("services[0].environment", Assert.Throws<ConfigFileException>(() => ConfigFileMapper.ToConfig(badEnv, "services[0]")).Message);
         }
 
         [Fact]
@@ -245,7 +245,7 @@ namespace Services.Tests
         [Fact]
         public void Plan_MissingExecutable_ThrowsBeforeAnyChange()
         {
-            var ex = Assert.Throws<UsageException>(() => ApplyPlanner.Build(Desired(Minimal("A")), new List<Service>(), false, _ => false));
+            var ex = Assert.Throws<ConfigFileException>(() => ApplyPlanner.Build(Desired(Minimal("A")), new List<Service>(), false, _ => false));
 
             Assert.Contains("可执行文件不存在", ex.Message);
         }
@@ -259,7 +259,7 @@ namespace Services.Tests
                 Existing("id-2", "a")
             };
 
-            Assert.Throws<UsageException>(() => ApplyPlanner.Build(Desired(Minimal("A")), existing, false, _ => true));
+            Assert.Throws<ConfigFileException>(() => ApplyPlanner.Build(Desired(Minimal("A")), existing, false, _ => true));
         }
 
         [Fact]
@@ -268,7 +268,7 @@ namespace Services.Tests
             var entry = Minimal("A");
             entry.Account = @".\svcuser";
 
-            var ex = Assert.Throws<UsageException>(() => ApplyPlanner.Build(Desired(entry), new List<Service>(), false, _ => true));
+            var ex = Assert.Throws<ConfigFileException>(() => ApplyPlanner.Build(Desired(entry), new List<Service>(), false, _ => true));
 
             Assert.Contains("--password-stdin", ex.Message);
         }

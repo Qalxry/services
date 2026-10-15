@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Data;
 using Microsoft.UI;
+using Services.Core.Application;
 using Services.Core.Helpers;
 using Services.Core.Services;
 using Services.Core.Models;
@@ -22,6 +23,8 @@ namespace ServicesApp
     {
         private H.NotifyIcon.TaskbarIcon? TrayIcon;
         private readonly WindowsServiceManager _serviceManager;
+        // 与 servicesctl 共用的应用层操作（启停并等待结果等）
+        private readonly ServiceOperations _operations;
         private readonly EnvironmentManager _envManager;
         private readonly LogManager _logManager;
         private AppWindow _appWindow;
@@ -64,6 +67,7 @@ namespace ServicesApp
             _serviceManager.ServiceUpdated += OnServiceUpdated;
             _envManager = new EnvironmentManager();
             _logManager = new LogManager();
+            _operations = new ServiceOperations(_serviceManager, _logManager);
 
             this.Activated += OnWindowActivated;
 
@@ -467,6 +471,18 @@ namespace ServicesApp
             UpdateStatus($"已加载 {Services.Count} 个服务。");
         }
 
+        /// <summary>
+        /// 应用层异常的用户可读说明
+        /// </summary>
+        private static string DescribeError(Exception ex) => ex switch
+        {
+            ServiceStartException se when se.Kind == StartFailureKind.StoppedDuringStart =>
+                "服务启动后立即停止" + (se.Reason != null ? $"：{se.Reason}" : "（目标程序可能已退出）") + "。可在“查看日志”中了解详情。",
+            ServiceStartException => "服务在 30 秒内未进入运行状态。可在“查看日志”中了解原因。",
+            ServiceStopException => "服务在 30 秒内未能停止。",
+            _ => ex.Message
+        };
+
         private void UpdateStatus(string message)
         {
             if (StatusText != null) StatusText.Text = $"{DateTime.Now:HH:mm:ss} - {message}";
@@ -479,12 +495,13 @@ namespace ServicesApp
                 try
                 {
                     UpdateStatus($"正在启动服务 {id}...");
-                    await _serviceManager.StartServiceAsync(id);
+                    await _operations.StartAsync(id);
                     UpdateStatus($"服务 {id} 已启动。");
                 }
                 catch (Exception ex)
                 {
-                    await ShowDialog("错误", $"启动服务失败: {ex.Message}");
+                    UpdateStatus($"服务 {id} 启动失败。");
+                    await ShowDialog("错误", $"启动服务失败: {DescribeError(ex)}");
                 }
             }
         }
@@ -496,12 +513,12 @@ namespace ServicesApp
                 try
                 {
                     UpdateStatus($"正在停止服务 {id}...");
-                    await _serviceManager.StopServiceAsync(id);
+                    await _operations.StopAsync(id);
                     UpdateStatus($"服务 {id} 已停止。");
                 }
                 catch (Exception ex)
                 {
-                    await ShowDialog("错误", $"停止服务失败: {ex.Message}");
+                    await ShowDialog("错误", $"停止服务失败: {DescribeError(ex)}");
                 }
             }
         }
@@ -692,13 +709,12 @@ namespace ServicesApp
                 try
                 {
                     UpdateStatus($"正在重启服务 {existing.Id}...");
-                    await _serviceManager.StopServiceAsync(existing.Id);
-                    await _serviceManager.StartServiceAsync(existing.Id);
+                    await _operations.RestartAsync(existing.Id);
                     UpdateStatus($"服务 {existing.Id} 已重启。");
                 }
                 catch (Exception ex)
                 {
-                    await ShowDialog("错误", $"重启服务失败: {ex.Message}");
+                    await ShowDialog("错误", $"重启服务失败: {DescribeError(ex)}");
                 }
             }
         }
