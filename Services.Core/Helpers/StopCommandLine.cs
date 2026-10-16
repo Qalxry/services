@@ -1,0 +1,29 @@
+using System;
+
+namespace Services.Core.Helpers
+{
+    /// <summary>
+    /// 命令（停止命令、健康检查命令、钩子命令）的占位符展开：{exe}、{workdir} 自动加引号，
+    /// {pid} 为目标进程 ID，{exitcode} 为目标程序的退出码；不适用的占位符（如启动前命令中的 {pid}）展开为空。
+    /// 展开结果交由 cmd.exe 执行，因此可直接使用 PATH 中的命令（如 redis-cli shutdown）。
+    /// </summary>
+    public static class StopCommandLine
+    {
+        public static string Expand(string command, string exePath, string workingDir, int? pid, int? exitCode = null)
+        {
+            return command
+                .Replace("{exe}", Quote(exePath), StringComparison.OrdinalIgnoreCase)
+                .Replace("{workdir}", Quote(workingDir), StringComparison.OrdinalIgnoreCase)
+                .Replace("{pid}", pid?.ToString() ?? "", StringComparison.OrdinalIgnoreCase)
+                .Replace("{exitcode}", exitCode?.ToString() ?? "", StringComparison.OrdinalIgnoreCase)
+                .Trim();
+        }
+
+        /// <summary>
+        /// cmd.exe 参数：/d 不执行 AutoRun，/s 配合外层引号原样保留命令中的引号
+        /// </summary>
+        public static string ToCmdArguments(string expandedCommand) => $"/d /s /c \"{expandedCommand}\"";
+
+        private static string Quote(string value) => $"\"{value.Trim('"')}\"";
+    }
+}

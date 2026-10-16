@@ -16,6 +16,8 @@
     <Grid x:Name="RootGrid">
         <Grid.Resources>
             <local:StatusColorConverter x:Key="StatusColorConverter" />
+            <local:StatusTextConverter x:Key="StatusTextConverter" />
+            <local:UptimeConverter x:Key="UptimeConverter" />
             <local:BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
             <local:DateTimeFormatConverter x:Key="DateTimeFormatConverter" />
             
@@ -76,6 +78,12 @@
                     </Setter.Value>
                 </Setter>
             </Style>
+
+            <Style x:Key="SortHeaderButtonStyle" TargetType="Button" BasedOn="{StaticResource ActionIconButtonStyle}">
+                <Setter Property="Padding" Value="4,2"/>
+                <Setter Property="Margin" Value="-4,0,0,0"/>
+                <Setter Property="HorizontalAlignment" Value="Left"/>
+            </Style>
         </Grid.Resources>
         
         <Grid.RowDefinitions>
@@ -100,10 +108,45 @@
         <!-- Toolbar Area -->
         <Grid Grid.Row="1" Padding="16,0,16,12">
             <Grid Background="{ThemeResource LayerFillColorDefaultBrush}" CornerRadius="8" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" Padding="4">
-                <CommandBar DefaultLabelPosition="Right" Background="Transparent" IsOpen="False" HorizontalAlignment="Left">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <CommandBar DefaultLabelPosition="Right" Background="Transparent" IsOpen="False" HorizontalAlignment="Left" OverflowButtonVisibility="Auto">
                     <AppBarButton Icon="Add" Label="添加服务" Click="OnAddServiceClick" ToolTipService.ToolTip="创建一个新服务"/>
                     <AppBarSeparator/>
                     <AppBarButton Icon="Refresh" Label="刷新" Click="OnRefreshClick" ToolTipService.ToolTip="刷新服务列表"/>
+                    <AppBarToggleButton x:Name="MultiSelectToggle" Label="多选" Click="OnMultiSelectToggle" ToolTipService.ToolTip="选择多个服务进行批量启动 / 停止 / 重启">
+                        <AppBarToggleButton.Icon>
+                            <FontIcon Glyph="&#xE762;"/>
+                        </AppBarToggleButton.Icon>
+                    </AppBarToggleButton>
+                    <AppBarButton x:Name="BatchStartButton" Label="启动所选" Click="OnBatchStartClick" Visibility="Collapsed">
+                        <AppBarButton.Icon>
+                            <FontIcon Glyph="&#xE768;"/>
+                        </AppBarButton.Icon>
+                    </AppBarButton>
+                    <AppBarButton x:Name="BatchStopButton" Label="停止所选" Click="OnBatchStopClick" Visibility="Collapsed">
+                        <AppBarButton.Icon>
+                            <FontIcon Glyph="&#xE71A;"/>
+                        </AppBarButton.Icon>
+                    </AppBarButton>
+                    <AppBarButton x:Name="BatchRestartButton" Label="重启所选" Click="OnBatchRestartClick" Visibility="Collapsed">
+                        <AppBarButton.Icon>
+                            <FontIcon Glyph="&#xE777;"/>
+                        </AppBarButton.Icon>
+                    </AppBarButton>
+                    <AppBarSeparator/>
+                    <AppBarButton Label="导入配置" Click="OnImportClick" ToolTipService.ToolTip="从 JSON 配置文件创建 / 更新服务（先预览变更）">
+                        <AppBarButton.Icon>
+                            <FontIcon Glyph="&#xE8B5;"/>
+                        </AppBarButton.Icon>
+                    </AppBarButton>
+                    <AppBarButton Label="导出配置" Click="OnExportClick" ToolTipService.ToolTip="将全部服务配置导出为 JSON（与 servicesctl export 相同）">
+                        <AppBarButton.Icon>
+                            <FontIcon Glyph="&#xEDE1;"/>
+                        </AppBarButton.Icon>
+                    </AppBarButton>
                     <AppBarSeparator/>
                     <AppBarButton Label="环境变量" Click="OnEnvVarsClick" ToolTipService.ToolTip="管理系统环境变量">
                         <AppBarButton.Icon>
@@ -112,6 +155,15 @@
                     </AppBarButton>
                     <AppBarButton Icon="Setting" Label="设置" Click="OnSettingsClick"/>
                 </CommandBar>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="8,0,4,0">
+                    <ComboBox x:Name="StateFilterBox" SelectionChanged="OnFilterChanged" MinWidth="110" SelectedIndex="0" ToolTipService.ToolTip="按状态筛选">
+                        <x:String>全部状态</x:String>
+                        <x:String>运行中</x:String>
+                        <x:String>已停止</x:String>
+                        <x:String>其他</x:String>
+                    </ComboBox>
+                    <TextBox x:Name="SearchBox" PlaceholderText="搜索名称、ID、路径" Width="220" TextChanged="OnSearchTextChanged"/>
+                </StackPanel>
             </Grid>
         </Grid>
 
@@ -127,17 +179,40 @@
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="2*"/>
                     <ColumnDefinition Width="120"/>
+                    <ColumnDefinition Width="110"/>
                     <ColumnDefinition Width="3*"/>
-                    <ColumnDefinition Width="140"/> 
+                    <ColumnDefinition Width="176"/>
                 </Grid.ColumnDefinitions>
-                <TextBlock Text="服务名称" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.6"/>
-                <TextBlock Grid.Column="1" Text="状态" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.6"/>
-                <TextBlock Grid.Column="2" Text="程序路径" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.6"/>
-                <TextBlock Grid.Column="3" Text="操作" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.6" HorizontalAlignment="Right" Margin="0,0,8,0"/>
+                <!-- 点击列头切换排序：升序 → 降序 → 默认（添加顺序） -->
+                <Button Grid.Column="0" Tag="Name" Click="OnSortHeaderClick" Style="{StaticResource SortHeaderButtonStyle}" ToolTipService.ToolTip="按服务名称排序（再次点击切换降序 / 默认顺序）">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <TextBlock Text="服务名称" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.6"/>
+                        <FontIcon x:Name="NameSortIcon" Glyph="&#xE8CB;" FontSize="10" Opacity="0.3"/>
+                    </StackPanel>
+                </Button>
+                <Button Grid.Column="1" Tag="Status" Click="OnSortHeaderClick" Style="{StaticResource SortHeaderButtonStyle}" ToolTipService.ToolTip="按状态排序（再次点击切换降序 / 默认顺序）">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <TextBlock Text="状态" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.6"/>
+                        <FontIcon x:Name="StatusSortIcon" Glyph="&#xE8CB;" FontSize="10" Opacity="0.3"/>
+                    </StackPanel>
+                </Button>
+                <Button Grid.Column="2" Tag="Uptime" Click="OnSortHeaderClick" Style="{StaticResource SortHeaderButtonStyle}" ToolTipService.ToolTip="按运行时长排序（再次点击切换降序 / 默认顺序）">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <TextBlock Text="运行时长" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.6"/>
+                        <FontIcon x:Name="UptimeSortIcon" Glyph="&#xE8CB;" FontSize="10" Opacity="0.3"/>
+                    </StackPanel>
+                </Button>
+                <Button Grid.Column="3" Tag="Path" Click="OnSortHeaderClick" Style="{StaticResource SortHeaderButtonStyle}" ToolTipService.ToolTip="按程序路径排序（再次点击切换降序 / 默认顺序）">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <TextBlock Text="程序路径" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.6"/>
+                        <FontIcon x:Name="PathSortIcon" Glyph="&#xE8CB;" FontSize="10" Opacity="0.3"/>
+                    </StackPanel>
+                </Button>
+                <TextBlock Grid.Column="4" Text="操作" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.6" HorizontalAlignment="Right" Margin="0,0,8,0"/>
             </Grid>
 
             <!-- Service List -->
-            <ListView Grid.Row="1" ItemsSource="{Binding Services}" SelectionMode="None">
+            <ListView x:Name="ServiceList" Grid.Row="1" ItemsSource="{Binding Services}" SelectionMode="None" IsItemClickEnabled="True" ItemClick="OnServiceItemClick">
                 <ListView.ItemContainerStyle>
                     <Style TargetType="ListViewItem">
                         <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
@@ -153,8 +228,9 @@
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="2*"/>
                                 <ColumnDefinition Width="120"/>
+                                <ColumnDefinition Width="110"/>
                                 <ColumnDefinition Width="3*"/>
-                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="176"/>
                             </Grid.ColumnDefinitions>
                             
                             <!-- Name & ID -->
@@ -182,24 +258,30 @@
 
                             <!-- Status -->
                             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                <Ellipse Width="10" Height="10" Fill="{Binding Status, Converter={StaticResource StatusColorConverter}}"/>
-                                <TextBlock Text="{Binding Status}" Style="{StaticResource BodyTextBlockStyle}" VerticalAlignment="Center"/>
+                                <Ellipse Width="10" Height="10" Fill="{Binding State, Converter={StaticResource StatusColorConverter}}"/>
+                                <TextBlock Text="{Binding State, Converter={StaticResource StatusTextConverter}}" Style="{StaticResource BodyTextBlockStyle}" VerticalAlignment="Center"/>
                                 <FontIcon Glyph="&#xE72C;" FontSize="12" Opacity="0.5" ToolTipService.ToolTip="自动重启已启用" Visibility="{Binding AutoRestart, Converter={StaticResource BooleanToVisibilityConverter}}" Margin="4,0,0,0"/>
                             </StackPanel>
 
+                            <!-- Uptime -->
+                            <TextBlock Grid.Column="2" Text="{Binding Uptime, Converter={StaticResource UptimeConverter}}" VerticalAlignment="Center" Opacity="0.8" Style="{StaticResource CaptionTextBlockStyle}"/>
+
                             <!-- Path -->
-                            <TextBlock Grid.Column="2" Text="{Binding ExePath}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{Binding ExePath}" Opacity="0.7" Style="{StaticResource CaptionTextBlockStyle}" FontFamily="Consolas"/>
+                            <TextBlock Grid.Column="3" Text="{Binding ExePath}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{Binding ExePath}" Opacity="0.7" Style="{StaticResource CaptionTextBlockStyle}" FontFamily="Consolas"/>
 
                             <!-- Actions -->
-                            <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Right">
+                            <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Right">
                                 <Button Click="OnStartClick" Tag="{Binding Id}" ToolTipService.ToolTip="启动" Style="{StaticResource ActionIconButtonStyle}">
                                     <FontIcon Glyph="&#xE768;" FontSize="14" Foreground="{ThemeResource SystemFillColorSuccessBrush}"/>
                                 </Button>
                                 <Button Click="OnStopClick" Tag="{Binding Id}" ToolTipService.ToolTip="停止" Style="{StaticResource ActionIconButtonStyle}">
                                     <FontIcon Glyph="&#xE71A;" FontSize="14" Foreground="{ThemeResource SystemFillColorCriticalBrush}"/>
                                 </Button>
+                                <Button Click="OnEditClick" Tag="{Binding Id}" ToolTipService.ToolTip="编辑" Style="{StaticResource ActionIconButtonStyle}">
+                                    <FontIcon Glyph="&#xE70F;" FontSize="14"/>
+                                </Button>
                                 <Button Click="OnLogsClick" Tag="{Binding Id}" ToolTipService.ToolTip="日志" Style="{StaticResource ActionIconButtonStyle}">
-                                    <FontIcon Glyph="&#xE8A5;" FontSize="14"/>
+                                    <FontIcon Glyph="&#xF000;" FontSize="14"/>
                                 </Button>
                                 <Button Click="OnDeleteClick" Tag="{Binding Id}" ToolTipService.ToolTip="删除" Style="{StaticResource ActionIconButtonStyle}">
                                     <FontIcon Glyph="&#xE74D;" FontSize="14" Foreground="{ThemeResource SystemFillColorCriticalBrush}"/>

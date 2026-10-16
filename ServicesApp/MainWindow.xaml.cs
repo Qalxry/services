@@ -3,8 +3,11 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Data;
 using Microsoft.UI;
+using Services.Core.Application;
+using Services.Core.Helpers;
 using Services.Core.Services;
 using Services.Core.Models;
+using Services.Core.Presentation;
 using System.Collections.ObjectModel;
 using System;
 using System.Linq;
@@ -20,6 +23,8 @@ namespace ServicesApp
     {
         private H.NotifyIcon.TaskbarIcon? TrayIcon;
         private readonly WindowsServiceManager _serviceManager;
+        // 与 servicesctl 共用的应用层操作（启停并等待结果等）
+        private readonly ServiceOperations _operations;
         private readonly EnvironmentManager _envManager;
         private readonly LogManager _logManager;
         private AppWindow _appWindow;
@@ -28,8 +33,10 @@ namespace ServicesApp
         private bool _isRefreshRunning = false;
         private bool _isVisibleRefreshMode = true;
         private bool _isLoadServicesRunning = false;
+        private bool _isReloadOnActivateRunning = false;
         private System.Threading.Timer? _logCleanupTimer;
         private CancellationTokenSource? _cleanupCts;
+        private RegisteredWaitHandle? _showWindowWait;
         private static readonly TimeSpan VisibleRefreshInterval = TimeSpan.FromSeconds(2);
         private static readonly TimeSpan HiddenRefreshInterval = TimeSpan.FromSeconds(30);
 
@@ -56,12 +63,24 @@ namespace ServicesApp
             _serviceManager.ServiceUpdated += OnServiceUpdated;
             _envManager = new EnvironmentManager();
             _logManager = new LogManager();
+            _operations = new ServiceOperations(_serviceManager, _logManager);
 
             this.Activated += OnWindowActivated;
 
             Title = "ServicesApp";
 
             this.Closed += OnWindowClosed;
+
+            // 再次启动程序时显示已运行实例的主窗口
+            if (Program.ShowWindowEvent != null)
+            {
+                _showWindowWait = ThreadPool.RegisterWaitForSingleObject(
+                    Program.ShowWindowEvent,
+                    (_, _) => DispatcherQueue.TryEnqueue(ShowWindow),
+                    null,
+                    Timeout.Infinite,
+                    executeOnlyOnce: false);
+            }
 
             _refreshTimer = new DispatcherTimer { Interval = VisibleRefreshInterval };
             _refreshTimer.Tick += async (s, e) =>
@@ -73,7 +92,7 @@ namespace ServicesApp
             // Startup log cleanup
             Task.Run(() =>
             {
-                try { _logManager.CleanupOldLogs(LogManager.GetGlobalRetentionDays()); }
+                try { _logManager.CleanupLogs(); }
                 catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"Startup cleanup failed: {ex}"); }
             });
 
@@ -87,6 +106,51 @@ namespace ServicesApp
             InitializeTrayIcon();
             await _serviceManager.InitializeAsync();
             LoadServices();
+            MigrateWrapperInBackground();
+            this.Activated += OnWindowReactivated;
+        }
+
+        /// <summary>
+        /// 将服务切换到当前版本的包装器（受保护目录中的副本）并清理旧版本，
+        /// 运行中的服务在下次启动时生效
+        /// </summary>
+        private async void MigrateWrapperInBackground()
+        {
+            try
+            {
+                var result = await Task.Run(() => _serviceManager.MigrateWrapper());
+                if (result.Migrated.Count > 0)
+                {
+                    UpdateStatus($"已将 {result.Migrated.Count} 个服务切换到当前版本的包装器，正在运行的服务重启后生效。");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Migrate wrapper failed: {ex}");
+            }
+        }
+
+        /// <summary>
+        /// 窗口重新获得焦点时从注册表重新加载服务，以显示命令行（servicesctl）或其他途径所做的修改
+        /// </summary>
+        private async void OnWindowReactivated(object sender, WindowActivatedEventArgs args)
+        {
+            if (args.WindowActivationState == WindowActivationState.Deactivated || _isReloadOnActivateRunning) return;
+
+            _isReloadOnActivateRunning = true;
+            try
+            {
+                await _serviceManager.InitializeAsync();
+                LoadServices(true);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Reload on activate failed: {ex}");
+            }
+            finally
+            {
+                _isReloadOnActivateRunning = false;
+            }
         }
 
         private void OnAppWindowClosing(AppWindow sender, AppWindowClosingEventArgs args)
@@ -106,11 +170,6 @@ namespace ServicesApp
             UpdateTimerState(presenter.State != OverlappedPresenterState.Minimized);
         }
 
-        private void OnTrayIconDoubleTapped(object sender, RoutedEventArgs e)
-        {
-            ShowWindow();
-        }
-
         private void OnWindowClosed(object sender, WindowEventArgs args)
         {
             if (_appWindow != null)
@@ -119,11 +178,10 @@ namespace ServicesApp
                 _appWindow.Changed -= OnAppWindowChanged;
             }
             
-            if (TrayIcon != null)
-            {
-                TrayIcon.DoubleTapped -= OnTrayIconDoubleTapped;
-            }
-            
+            this.Activated -= OnWindowReactivated;
+            _showWindowWait?.Unregister(null);
+            _showWindowWait = null;
+
             _refreshTimer?.Stop();
             _refreshTimer = null;
 
@@ -180,54 +238,16 @@ namespace ServicesApp
             }
         }
 
-        private void InitializeTrayIcon()
-        {
-            try
-            {
-                TrayIcon = new H.NotifyIcon.TaskbarIcon();
-                TrayIcon.ToolTipText = "ServicesApp";
-
-                var iconPath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "icon.ico");
-                if (System.IO.File.Exists(iconPath))
-                {
-                    TrayIcon.IconSource = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(iconPath));
-                }
-
-                RootGrid.Children.Add(TrayIcon);
-                TrayIcon.ContextMenuMode = H.NotifyIcon.ContextMenuMode.PopupMenu;
-                TrayIcon.NoLeftClickDelay = true;
-                TrayIcon.DoubleTapped += OnTrayIconDoubleTapped;
-
-                var flyout = new MenuFlyout();
-
-                var showCommand = new XamlUICommand();
-                showCommand.Label = "显示窗口";
-                showCommand.ExecuteRequested += (s, e) => ShowWindow();
-                var showItem = new MenuFlyoutItem { Text = "显示窗口", Command = showCommand };
-
-                var exitCommand = new XamlUICommand();
-                exitCommand.Label = "退出";
-                exitCommand.ExecuteRequested += (s, e) => RealExit();
-                var exitItem = new MenuFlyoutItem { Text = "退出", Command = exitCommand };
-
-                flyout.Items.Add(showItem);
-                flyout.Items.Add(new MenuFlyoutSeparator());
-                flyout.Items.Add(exitItem);
-
-                TrayIcon.ContextFlyout = flyout;
-                TrayIcon.Visibility = Visibility.Visible;
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Tray Icon Init Failed: {ex}");
-            }
-        }
-
         public void ShowWindow()
         {
+            if (_appWindow.Presenter is OverlappedPresenter presenter && presenter.State == OverlappedPresenterState.Minimized)
+            {
+                presenter.Restore();
+            }
             _appWindow.Show();
             _appWindow.MoveInZOrderAtTop();
             this.Activate();
+            Win32Helper.SetForegroundWindow(WindowNative.GetWindowHandle(this));
             UpdateTimerState(true);
             LoadServices(); // Refresh immediately when showing
         }
@@ -239,17 +259,20 @@ namespace ServicesApp
             Application.Current.Exit();
         }
 
-
         private void OnServiceUpdated(object? sender, Service service)
         {
             this.DispatcherQueue.TryEnqueue(() =>
             {
-                var existing = Services.FirstOrDefault(s => s.Id == service.Id);
+                var existing = _allServices.FirstOrDefault(s => s.Id == service.Id);
                 if (existing != null)
                 {
-                    existing.Status = service.Status;
+                    bool stateChanged = existing.State != service.State;
+                    existing.State = service.State;
                     existing.Pid = service.Pid;
+                    existing.Uptime = service.Uptime;
                     existing.UpdatedAt = service.UpdatedAt;
+                    // 状态变化可能影响筛选与排序；运行时长每次刷新都会变化，只在按其排序时重排
+                    if (stateChanged || _sortColumn == SortColumn.Uptime) ApplyView();
                 }
             });
         }
@@ -265,27 +288,21 @@ namespace ServicesApp
                 if (!silent) UpdateStatus("正在加载服务...");
                 var list = await _serviceManager.GetServicesSnapshotAsync();
 
-                for (int i = Services.Count - 1; i >= 0; i--)
-                {
-                    if (!list.Any(s => s.Id == Services[i].Id))
-                    {
-                        Services.RemoveAt(i);
-                    }
-                }
-
+                _allServices.RemoveAll(s => !list.Any(item => item.Id == s.Id));
                 foreach (var item in list)
                 {
-                    var existing = Services.FirstOrDefault(s => s.Id == item.Id);
+                    var existing = _allServices.FirstOrDefault(s => s.Id == item.Id);
                     if (existing == null)
                     {
-                        Services.Add(item);
+                        _allServices.Add(item);
                     }
                     else
                     {
-                        existing.Status = item.Status;
-                        existing.Pid = item.Pid;
+                        existing.CopyFrom(item);
                     }
                 }
+
+                ApplyView();
 
                 if (!silent) UpdateStatus($"已加载 {list.Count} 个服务。");
             }
@@ -304,324 +321,24 @@ namespace ServicesApp
             UpdateStatus("正在刷新服务列表...");
             await _serviceManager.InitializeAsync();
             LoadServices();
-            UpdateStatus($"已加载 {Services.Count} 个服务。");
+            UpdateStatus($"已加载 {_allServices.Count} 个服务。");
         }
+
+        /// <summary>
+        /// 应用层异常的用户可读说明
+        /// </summary>
+        private static string DescribeError(Exception ex) => ex switch
+        {
+            ServiceStartException se when se.Kind == StartFailureKind.StoppedDuringStart =>
+                "服务启动后立即停止" + (se.Reason != null ? $"：{se.Reason}" : "（目标程序可能已退出）") + "。可在“查看日志”中了解详情。",
+            ServiceStartException => "服务在 30 秒内未进入运行状态。可在“查看日志”中了解原因。",
+            ServiceStopException => "服务在 30 秒内未能停止。",
+            _ => ex.Message
+        };
 
         private void UpdateStatus(string message)
         {
             if (StatusText != null) StatusText.Text = $"{DateTime.Now:HH:mm:ss} - {message}";
-        }
-
-        private async void OnStartClick(object sender, RoutedEventArgs e)
-        {
-            if (sender is Button btn && btn.Tag is string id)
-            {
-                try
-                {
-                    UpdateStatus($"正在启动服务 {id}...");
-                    await _serviceManager.StartServiceAsync(id);
-                    UpdateStatus($"服务 {id} 已启动。");
-                }
-                catch (Exception ex)
-                {
-                    await ShowDialog("错误", $"启动服务失败: {ex.Message}");
-                }
-            }
-        }
-
-        private async void OnStopClick(object sender, RoutedEventArgs e)
-        {
-            if (sender is Button btn && btn.Tag is string id)
-            {
-                try
-                {
-                    UpdateStatus($"正在停止服务 {id}...");
-                    await _serviceManager.StopServiceAsync(id);
-                    UpdateStatus($"服务 {id} 已停止。");
-                }
-                catch (Exception ex)
-                {
-                    await ShowDialog("错误", $"停止服务失败: {ex.Message}");
-                }
-            }
-        }
-
-        private async void OnDeleteClick(object sender, RoutedEventArgs e)
-        {
-            if (sender is Button btn && btn.Tag is string id)
-            {
-                var confirm = await ShowConfirmDialog("删除服务", $"确定要删除服务 '{id}' 吗？此操作无法撤销。");
-                if (confirm)
-                {
-                    try
-                    {
-                        UpdateStatus($"正在删除服务 {id}...");
-                        await _serviceManager.DeleteServiceAsync(id);
-                        LoadServices(true);
-                        UpdateStatus($"服务 {id} 已删除。");
-                    }
-                    catch (Exception ex)
-                    {
-                        await ShowDialog("错误", $"删除服务失败: {ex.Message}");
-                    }
-                }
-            }
-        }
-
-        private void OnLogsClick(object sender, RoutedEventArgs e)
-        {
-            if (sender is Button btn && btn.Tag is string serviceId)
-            {
-                var service = Services.FirstOrDefault(s => s.Id == serviceId);
-                if (service != null)
-                {
-                    ShowLogViewer(service.Id, service.Name);
-                }
-                else
-                {
-                    ShowLogViewer(serviceId, serviceId);
-                }
-            }
-        }
-
-        private void ShowLogViewer(string serviceId, string displayName)
-        {
-            var logWindow = new LogWindow(serviceId, displayName, _logManager);
-            logWindow.Activate();
-            logWindow.CenterOnScreen(_appWindow);
-        }
-
-        private async void OnAddServiceClick(object sender, RoutedEventArgs e)
-        {
-            var addServiceDialog = new ContentDialog
-            {
-                Title = "添加新服务",
-                PrimaryButtonText = "创建",
-                CloseButtonText = "取消",
-                XamlRoot = this.Content.XamlRoot
-            };
-
-            // Use Grid for compact layout (No redundancy)
-            var grid = new Grid { RowSpacing = 12, ColumnSpacing = 12 };
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-
-            // Name | Startup Type
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-
-            var addSvcNameBox = new TextBox { Header = "服务名称 (仅字母数字)", PlaceholderText = "MyService" };
-            Grid.SetColumn(addSvcNameBox, 0); Grid.SetRow(addSvcNameBox, 0);
-
-            var addSvcStartupBox = new ComboBox { Header = "启动类型", HorizontalAlignment = HorizontalAlignment.Stretch };
-            addSvcStartupBox.Items.Add("开机自启");
-            addSvcStartupBox.Items.Add("手动启动");
-            Grid.SetColumn(addSvcStartupBox, 1); Grid.SetRow(addSvcStartupBox, 0);
-
-            // Exe Path | Browse Button
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-
-            var addSvcExeBox = new TextBox { Header = "可执行文件路径", PlaceholderText = "C:\\Path\\To\\App.exe" };
-            Grid.SetColumn(addSvcExeBox, 0); Grid.SetRow(addSvcExeBox, 1);
-            Grid.SetColumnSpan(addSvcExeBox, 2);
-
-            // Args
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            var addSvcArgsBox = new TextBox { Header = "启动参数 (可选)", PlaceholderText = "--config config.json" };
-            Grid.SetColumn(addSvcArgsBox, 0); Grid.SetRow(addSvcArgsBox, 2);
-            Grid.SetColumnSpan(addSvcArgsBox, 2);
-
-            // WorkDir
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            var addSvcWorkDirBox = new TextBox { Header = "工作目录 (可选)", PlaceholderText = "默认为程序所在目录" };
-            Grid.SetColumn(addSvcWorkDirBox, 0); Grid.SetRow(addSvcWorkDirBox, 3);
-            Grid.SetColumnSpan(addSvcWorkDirBox, 2);
-
-            // Auto Restart & Browse Button
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-
-            var addSvcAutoRestartCheck = new CheckBox { Content = "失败自动重启", IsChecked = false, VerticalAlignment = VerticalAlignment.Center };
-            Grid.SetColumn(addSvcAutoRestartCheck, 0); Grid.SetRow(addSvcAutoRestartCheck, 4);
-
-            var browseBtn = new Button { Content = "📂 选择程序", HorizontalAlignment = HorizontalAlignment.Right };
-            Grid.SetColumn(browseBtn, 1); Grid.SetRow(browseBtn, 4);
-
-            // Add children
-            grid.Children.Add(addSvcNameBox);
-            grid.Children.Add(addSvcStartupBox);
-            grid.Children.Add(addSvcExeBox);
-            grid.Children.Add(addSvcArgsBox);
-            grid.Children.Add(addSvcWorkDirBox);
-            grid.Children.Add(addSvcAutoRestartCheck);
-            grid.Children.Add(browseBtn);
-
-            // Events
-            browseBtn.Click += (s, args) =>
-            {
-                var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
-                var pickedPath = Win32Helper.PickFile(hwnd, "选择可执行文件");
-                if (pickedPath != null)
-                {
-                    addSvcExeBox.Text = pickedPath;
-                    if (string.IsNullOrWhiteSpace(addSvcWorkDirBox.Text))
-                    {
-                        addSvcWorkDirBox.Text = System.IO.Path.GetDirectoryName(pickedPath) ?? "";
-                    }
-                }
-            };
-
-            // Wrap in ScrollViewer but HIDE scrollbars (Clean UI)
-            var scrollViewer = new ScrollViewer
-            {
-                VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, // Hidden but scrollable
-                Content = grid
-            };
-
-            addServiceDialog.Content = scrollViewer;
-            addSvcStartupBox.SelectedIndex = 0;
-
-            var result = await addServiceDialog.ShowAsync();
-            if (result == ContentDialogResult.Primary)
-            {
-                if (string.IsNullOrWhiteSpace(addSvcNameBox.Text) || string.IsNullOrWhiteSpace(addSvcExeBox.Text))
-                {
-                    await ShowDialog("验证错误", "服务名称和可执行文件路径为必填项。");
-                    return;
-                }
-
-                try
-                {
-                    var config = new ServiceConfig
-                    {
-                        Name = addSvcNameBox.Text,
-                        ExePath = addSvcExeBox.Text,
-                        Args = addSvcArgsBox.Text,
-                        WorkingDir = addSvcWorkDirBox.Text,
-                        AutoRestart = addSvcAutoRestartCheck.IsChecked ?? false,
-                        StartupType = (ServiceStartupType)(addSvcStartupBox.SelectedIndex + 2)
-                    };
-                    await _serviceManager.CreateServiceAsync(config);
-                    LoadServices();
-                    UpdateStatus($"服务 {config.Name} 已创建。");
-                }
-                catch (Exception ex)
-                {
-                    await ShowDialog("错误", $"创建服务失败: {ex.Message}");
-                }
-            }
-        }
-
-        private async void OnSettingsClick(object sender, RoutedEventArgs e)
-        {
-            var dialog = new ContentDialog
-            {
-                Title = "应用设置",
-                PrimaryButtonText = "保存",
-                CloseButtonText = "取消",
-                XamlRoot = this.Content.XamlRoot
-            };
-
-            var stack = new StackPanel { Spacing = 15, Padding = new Thickness(0, 10, 0, 0) };
-
-            var infoStack = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
-            var infoBlock = new TextBlock
-            {
-                Text = "Windows后台服务管理工具",
-                TextWrapping = TextWrapping.Wrap,
-                Opacity = 0.8,
-                VerticalAlignment = VerticalAlignment.Center
-            };
-            var githubLink = new HyperlinkButton
-            {
-                Content = "GitHub",
-                NavigateUri = new Uri("https://github.com/sky22333/services"),
-                Padding = new Thickness(8, 4, 8, 4),
-                VerticalAlignment = VerticalAlignment.Center,
-                FontSize = 12
-            };
-            ToolTipService.SetToolTip(githubLink, "访问 GitHub 仓库");
-            infoStack.Children.Add(infoBlock);
-            infoStack.Children.Add(githubLink);
-
-            var retentionHeader = new TextBlock { Text = "日志保留策略", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Margin = new Thickness(0, 10, 0, 0) };
-            var retentionStack = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
-            var retentionBox = new NumberBox
-            {
-                Value = LogManager.GetGlobalRetentionDays(),
-                Minimum = 1,
-                Maximum = 365,
-                SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline,
-                Width = 200,
-                VerticalAlignment = VerticalAlignment.Center,
-                Header = "保留天数"
-            };
-
-            stack.Children.Add(infoStack);
-            stack.Children.Add(new MenuFlyoutSeparator());
-            stack.Children.Add(retentionHeader);
-            stack.Children.Add(retentionBox);
-            stack.Children.Add(new TextBlock { Text = "修改后立即生效，过期日志会自动清理。", FontSize = 12, Opacity = 0.6 });
-
-            dialog.Content = stack;
-
-            var result = await dialog.ShowAsync();
-            if (result == ContentDialogResult.Primary)
-            {
-                try
-                {
-                    int days = (int)retentionBox.Value;
-                    LogManager.SetGlobalRetentionDays(days);
-                    _logManager.CleanupOldLogs(days);
-                    UpdateStatus($"设置已保存。已清理早于 {days} 天的日志。");
-                }
-                catch (Exception ex)
-                {
-                    await ShowDialog("错误", $"保存设置失败: {ex.Message}");
-                }
-            }
-        }
-
-        private async void OnEnvVarsClick(object sender, RoutedEventArgs e)
-        {
-            var dialog = new ContentDialog
-            {
-                Title = "添加到 PATH 环境变量",
-                PrimaryButtonText = "添加",
-                CloseButtonText = "取消",
-                XamlRoot = this.Content.XamlRoot
-            };
-
-            var stack = new StackPanel { Spacing = 10 };
-            var pathBox = new TextBox { Header = "目录路径", PlaceholderText = "C:\\My\\Tools" };
-            var browseBtn = new Button { Content = "浏览目录..." };
-
-            browseBtn.Click += (s, args) =>
-            {
-                var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
-                var pickedPath = Win32Helper.PickFolder(hwnd, "选择目录");
-
-                if (pickedPath != null) pathBox.Text = pickedPath;
-            };
-
-            stack.Children.Add(pathBox);
-            stack.Children.Add(browseBtn);
-            dialog.Content = stack;
-
-            var result = await dialog.ShowAsync();
-            if (result == ContentDialogResult.Primary)
-            {
-                if (string.IsNullOrWhiteSpace(pathBox.Text)) return;
-
-                try
-                {
-                    _envManager.AddToPath(pathBox.Text);
-                    UpdateStatus("环境变量已更新。");
-                    await ShowDialog("成功", "路径添加成功。");
-                }
-                catch (Exception ex)
-                {
-                    await ShowDialog("错误", $"更新环境变量失败: {ex.Message}");
-                }
-            }
         }
 
         private async Task ShowDialog(string title, string content)
@@ -705,8 +422,7 @@ namespace ServicesApp
                     {
                         try 
                         { 
-                            var days = LogManager.GetGlobalRetentionDays();
-                            _logManager.CleanupOldLogs(days); 
+                            _logManager.CleanupLogs();
                         }
                         catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"Daily cleanup failed: {ex}"); }
                     }

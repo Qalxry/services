@@ -7,6 +7,16 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Services.Core", "Services.C
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ServicesApp", "ServicesApp\ServicesApp.csproj", "{GUID2}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Services.Cli", "Services.Cli\Services.Cli.csproj", "{GUID4}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Services.Tests", "Services.Tests\Services.Tests.csproj", "{GUID5}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Services.Wrapper", "Services.Wrapper\Services.Wrapper.csproj", "{GUID6}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Services.TestTarget", "Services.TestTarget\Services.TestTarget.csproj", "{GUID7}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Services.IntegrationTests", "Services.IntegrationTests\Services.IntegrationTests.csproj", "{GUID8}"
+EndProject
 Project("{930C7802-8A8C-48F9-8165-488C934DCC3B}") = "Services.Installer", "Services.Installer\Services.Installer.wixproj", "{GUID3}"
 EndProject
 Global
@@ -23,6 +33,26 @@ Global
 		{GUID2}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{GUID2}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{GUID2}.Release|Any CPU.Build.0 = Release|Any CPU
+		{GUID4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{GUID4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{GUID4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{GUID4}.Release|Any CPU.Build.0 = Release|Any CPU
+		{GUID5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{GUID5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{GUID5}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{GUID5}.Release|Any CPU.Build.0 = Release|Any CPU
+		{GUID6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{GUID6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{GUID6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{GUID6}.Release|Any CPU.Build.0 = Release|Any CPU
+		{GUID7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{GUID7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{GUID7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{GUID7}.Release|Any CPU.Build.0 = Release|Any CPU
+		{GUID8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{GUID8}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{GUID8}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{GUID8}.Release|Any CPU.Build.0 = Release|Any CPU
 		{GUID3}.Debug|Any CPU.ActiveCfg = Debug|x64
 		{GUID3}.Debug|Any CPU.Build.0 = Debug|x64
 		{GUID3}.Release|Any CPU.ActiveCfg = Release|x64

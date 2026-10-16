@@ -1,0 +1,230 @@
+using System.Diagnostics;
+
+namespace Services.TestTarget
+{
+    /// <summary>
+    /// 集成测试目标程序。所有选项可组合，按以下顺序执行：
+    ///   --record &lt;file&gt;          追加一行 "start &lt;pid&gt;"（统计启动次数）
+    ///   --stdout &lt;text&gt;          向 stdout 输出一行（可重复）
+    ///   --stderr &lt;text&gt;          向 stderr 输出一行（可重复）
+    ///   --print-env &lt;name&gt;       输出 "env &lt;name&gt;=&lt;value&gt;"（可重复）
+    ///   --print-user             输出 "user &lt;域\用户&gt;"
+    ///   --print-cwd              输出 "cwd &lt;当前目录&gt;"
+    ///   --spawn-child &lt;file&gt;     派生一个一直运行的子进程，将其 PID 写入文件（失败时输出 "spawn failed"）
+    ///   --alloc-mb &lt;n&gt;          分配并写入 n MB 内存：成功输出 "allocated n MB"，失败输出 "alloc failed" 并以 7 退出
+    ///   --ctrlc-file &lt;file&gt;      收到 Ctrl+C 时写入 "ctrlc" 并退出（退出码由 --ctrlc-exit 指定，默认 0）
+    ///   --ctrlc-exit &lt;code&gt;
+    ///   --ignore-ctrlc           忽略 Ctrl+C
+    ///   --quit-file &lt;file&gt;       该文件出现时以 0 退出（模拟 nginx -s quit 之类的停止命令）
+    ///   --exit &lt;code&gt;            输出完毕后（等待 --delay 毫秒）以指定退出码退出；不指定则一直运行
+    ///   --delay &lt;ms&gt;
+    ///   --tick &lt;ms&gt;              运行期间每隔指定毫秒向 stdout 输出 "tick &lt;n&gt;"
+    ///   --listen &lt;port&gt;          在 127.0.0.1 上监听 TCP 端口（接受连接后立即关闭）
+    ///   --http &lt;port&gt;            在 127.0.0.1 上提供最简 HTTP：返回 200，超过 --unhealthy-after 毫秒后返回 500
+    ///   --unhealthy-after &lt;ms&gt;
+    /// 准备完毕后输出 "ready"。
+    /// </summary>
+    internal static class Program
+    {
+        private static int Main(string[] args)
+        {
+            var options = Options.Parse(args);
+            if (options.Sleep)
+            {
+                Thread.Sleep(Timeout.Infinite);
+                return 0;
+            }
+
+            if (options.Record != null)
+                File.AppendAllText(options.Record, $"start {Environment.ProcessId}{Environment.NewLine}");
+
+            foreach (var line in options.Stdout) Console.Out.WriteLine(line);
+            foreach (var line in options.Stderr) Console.Error.WriteLine(line);
+            foreach (var name in options.PrintEnv)
+                Console.Out.WriteLine($"env {name}={Environment.GetEnvironmentVariable(name)}");
+            if (options.PrintUser)
+                Console.Out.WriteLine($"user {Environment.UserDomainName}\\{Environment.UserName}");
+            if (options.PrintCwd)
+                Console.Out.WriteLine($"cwd {Environment.CurrentDirectory}");
+
+            if (options.SpawnChild != null)
+            {
+                try
+                {
+                    var child = Process.Start(new ProcessStartInfo(Environment.ProcessPath!, "--sleep") { UseShellExecute = false })!;
+                    File.WriteAllText(options.SpawnChild, child.Id.ToString());
+                }
+                catch (Exception ex)
+                {
+                    Console.Out.WriteLine($"spawn failed: {ex.Message}");
+                }
+            }
+
+            if (options.AllocMB > 0)
+            {
+                var blocks = new List<byte[]>();
+                try
+                {
+                    for (int i = 0; i < options.AllocMB; i++)
+                    {
+                        var block = new byte[1024 * 1024];
+                        for (int j = 0; j < block.Length; j += 4096) block[j] = 1;
+                        blocks.Add(block);
+                    }
+                    Console.Out.WriteLine($"allocated {options.AllocMB} MB");
+                }
+                catch (OutOfMemoryException)
+                {
+                    blocks.Clear();
+                    Console.Out.WriteLine("alloc failed");
+                    Console.Out.Flush();
+                    return 7;
+                }
+            }
+
+            var exit = new ManualResetEventSlim();
+            int exitCode = 0;
+
+            if (options.CtrlCFile != null || options.IgnoreCtrlC)
+            {
+                Console.CancelKeyPress += (_, e) =>
+                {
+                    e.Cancel = true;
+                    if (options.IgnoreCtrlC)
+                    {
+                        Console.Out.WriteLine("ctrl-c ignored");
+                        return;
+                    }
+                    File.WriteAllText(options.CtrlCFile!, "ctrlc");
+                    Console.Out.WriteLine("ctrl-c received");
+                    exitCode = options.CtrlCExit;
+                    exit.Set();
+                };
+            }
+
+            if (options.QuitFile != null)
+            {
+                var quitFile = options.QuitFile;
+                new Thread(() =>
+                {
+                    while (!File.Exists(quitFile)) Thread.Sleep(100);
+                    Console.Out.WriteLine("quit file found");
+                    exitCode = 0;
+                    exit.Set();
+                }) { IsBackground = true }.Start();
+            }
+
+            if (options.Listen > 0) StartServer(options.Listen, http: false, unhealthyAfter: 0);
+            if (options.Http > 0) StartServer(options.Http, http: true, options.UnhealthyAfter);
+
+            if (options.Tick > 0)
+            {
+                new Thread(() =>
+                {
+                    for (int n = 1; ; n++)
+                    {
+                        Thread.Sleep(options.Tick);
+                        Console.Out.WriteLine($"tick {n}");
+                    }
+                }) { IsBackground = true }.Start();
+            }
+
+            Console.Out.WriteLine("ready");
+            Console.Out.Flush();
+
+            if (options.Exit is { } code)
+            {
+                if (exit.Wait(options.Delay)) return exitCode;
+                return code;
+            }
+
+            exit.Wait();
+            return exitCode;
+        }
+
+        private static void StartServer(int port, bool http, int unhealthyAfter)
+        {
+            var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, port);
+            listener.Start();
+            var started = Environment.TickCount64;
+            new Thread(() =>
+            {
+                while (true)
+                {
+                    using var client = listener.AcceptTcpClient();
+                    if (!http) continue;
+                    try
+                    {
+                        var stream = client.GetStream();
+                        var buffer = new byte[4096];
+                        stream.Read(buffer, 0, buffer.Length);
+                        bool healthy = unhealthyAfter <= 0 || Environment.TickCount64 - started < unhealthyAfter;
+                        var status = healthy ? "200 OK" : "500 Internal Server Error";
+                        var response = System.Text.Encoding.ASCII.GetBytes($"HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                        stream.Write(response, 0, response.Length);
+                    }
+                    catch (IOException)
+                    {
+                    }
+                }
+            }) { IsBackground = true }.Start();
+            Console.Out.WriteLine($"listening {port}");
+        }
+
+        private sealed class Options
+        {
+            public string? Record;
+            public List<string> Stdout = new();
+            public List<string> Stderr = new();
+            public List<string> PrintEnv = new();
+            public bool PrintUser;
+            public bool PrintCwd;
+            public string? SpawnChild;
+            public int AllocMB;
+            public string? CtrlCFile;
+            public int CtrlCExit;
+            public bool IgnoreCtrlC;
+            public string? QuitFile;
+            public int? Exit;
+            public int Delay;
+            public int Tick;
+            public bool Sleep;
+            public int Listen;
+            public int Http;
+            public int UnhealthyAfter;
+
+            public static Options Parse(string[] args)
+            {
+                var o = new Options();
+                for (int i = 0; i < args.Length; i++)
+                {
+                    string Next() => i + 1 < args.Length ? args[++i] : throw new ArgumentException($"{args[i]} requires a value");
+                    switch (args[i])
+                    {
+                        case "--record": o.Record = Next(); break;
+                        case "--stdout": o.Stdout.Add(Next()); break;
+                        case "--stderr": o.Stderr.Add(Next()); break;
+                        case "--print-env": o.PrintEnv.Add(Next()); break;
+                        case "--print-user": o.PrintUser = true; break;
+                        case "--print-cwd": o.PrintCwd = true; break;
+                        case "--spawn-child": o.SpawnChild = Next(); break;
+                        case "--alloc-mb": o.AllocMB = int.Parse(Next()); break;
+                        case "--ctrlc-file": o.CtrlCFile = Next(); break;
+                        case "--ctrlc-exit": o.CtrlCExit = int.Parse(Next()); break;
+                        case "--ignore-ctrlc": o.IgnoreCtrlC = true; break;
+                        case "--quit-file": o.QuitFile = Next(); break;
+                        case "--exit": o.Exit = int.Parse(Next()); break;
+                        case "--delay": o.Delay = int.Parse(Next()); break;
+                        case "--tick": o.Tick = int.Parse(Next()); break;
+                        case "--sleep": o.Sleep = true; break;
+                        case "--listen": o.Listen = int.Parse(Next()); break;
+                        case "--http": o.Http = int.Parse(Next()); break;
+                        case "--unhealthy-after": o.UnhealthyAfter = int.Parse(Next()); break;
+                        default: throw new ArgumentException($"unknown option {args[i]}");
+                    }
+                }
+                return o;
+            }
+        }
+    }
+}

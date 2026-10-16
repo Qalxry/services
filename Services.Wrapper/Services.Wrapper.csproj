@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- 服务包装器：服务的 ImagePath 指向本程序，由它运行并监管目标程序 -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Platforms>x64</Platforms>
+    <Platform>x64</Platform>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <RootNamespace>Services.Wrapper</RootNamespace>
+    <AssemblyName>servicesvc</AssemblyName>
+    <Product>ServicesApp Service Wrapper</Product>
+  </PropertyGroup>
+
+  <!--
+    自包含单文件 + 裁剪。不启用单文件压缩：未压缩的程序集可直接内存映射并在多个服务进程间共享，
+    压缩后每个服务进程都要在私有内存中解压一份。
+  -->
+  <PropertyGroup Condition="'$(Configuration)'=='Release'">
+    <DebugType>none</DebugType>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <PublishTrimmed>true</PublishTrimmed>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Services.Core\Services.Core.csproj" />
+  </ItemGroup>
+
+</Project>

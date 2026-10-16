@@ -1,108 +1,53 @@
 using System;
-using System.Runtime.InteropServices;
 
 namespace Services.Core.Helpers
 {
+    /// <summary>
+    /// 包装器命令行与启动参数的纯逻辑辅助（SCM 调用见 Scm.ScmClient）
+    /// </summary>
     public static class ServiceUtils
     {
-        public const uint SERVICE_QUERY_STATUS = 0x0004;
-        public const uint SC_MANAGER_CONNECT = 0x0001;
-        public const uint SC_MANAGER_CREATE_SERVICE = 0x0002;
-        public const uint SERVICE_ALL_ACCESS = 0xF01FF;
-        public const uint SERVICE_WIN32_OWN_PROCESS = 0x00000010;
-        public const uint SERVICE_AUTO_START = 0x00000002;
-        public const uint SERVICE_ERROR_NORMAL = 0x00000001;
-        public const uint DELETE = 0x00010000;
+        /// <summary>独立服务包装器的文件名，与 ServicesApp.exe / servicesctl.exe 位于同一目录</summary>
+        public const string WrapperExeName = "servicesvc.exe";
+        /// <summary>包装器命令行参数：&lt;包装器&gt; --service-wrapper &lt;服务ID&gt;</summary>
+        public const string WrapperArgument = "--service-wrapper";
 
-        [StructLayout(LayoutKind.Sequential)]
-        public struct SERVICE_STATUS_PROCESS
+        /// <summary>
+        /// 服务 ImagePath：由包装器以服务 ID 启动
+        /// </summary>
+        public static string BuildWrapperCommand(string wrapperExePath, string serviceId)
         {
-            public uint dwServiceType;
-            public uint dwCurrentState;
-            public uint dwControlsAccepted;
-            public uint dwWin32ExitCode;
-            public uint dwServiceSpecificExitCode;
-            public uint dwCheckPoint;
-            public uint dwWaitHint;
-            public uint dwProcessId;
-            public uint dwServiceFlags;
+            return $"\"{wrapperExePath}\" {WrapperArgument} \"{serviceId}\"";
         }
 
-        [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-        public static extern IntPtr OpenSCManager(string? machineName, string? databaseName, uint dwAccess);
-
-        [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-        public static extern IntPtr OpenService(IntPtr hSCManager, string lpServiceName, uint dwDesiredAccess);
-
-        [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-        public static extern IntPtr CreateService(
-            IntPtr hSCManager,
-            string lpServiceName,
-            string lpDisplayName,
-            uint dwDesiredAccess,
-            uint dwServiceType,
-            uint dwStartType,
-            uint dwErrorControl,
-            string lpBinaryPathName,
-            string? lpLoadOrderGroup,
-            IntPtr lpdwTagId,
-            string? lpDependencies,
-            string? lpServiceStartName,
-            string? lpPassword);
-
-        [DllImport("advapi32.dll", SetLastError = true)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool DeleteService(IntPtr hService);
-
-        [DllImport("advapi32.dll", SetLastError = true)]
-        public static extern bool CloseServiceHandle(IntPtr hSCObject);
-
-        [DllImport("advapi32.dll", SetLastError = true)]
-        public static extern bool QueryServiceStatusEx(IntPtr hService, int infoLevel, IntPtr lpBuffer, uint cbBufSize, out uint pcbBytesNeeded);
-
-        public static (string Status, int Pid) GetServiceStatus(string serviceName)
+        /// <summary>
+        /// 从服务的 ImagePath 中取出包装器程序路径：仅识别由本工具创建的包装器命令
+        /// （"&lt;程序&gt;" --service-wrapper "&lt;服务ID&gt;"），其他服务返回 null
+        /// </summary>
+        public static string? ParseWrapperExecutable(string? imagePath)
         {
-            IntPtr hSCManager = IntPtr.Zero;
-            IntPtr hService = IntPtr.Zero;
-            IntPtr ptr = IntPtr.Zero;
+            if (string.IsNullOrWhiteSpace(imagePath)) return null;
+            var text = imagePath.Trim();
+            if (!text.Contains(WrapperArgument, StringComparison.Ordinal)) return null;
 
-            try
+            if (text.StartsWith('"'))
             {
-                hSCManager = OpenSCManager(null, null, SC_MANAGER_CONNECT);
-                if (hSCManager == IntPtr.Zero) return ("未知", 0);
-
-                hService = OpenService(hSCManager, serviceName, SERVICE_QUERY_STATUS);
-                if (hService == IntPtr.Zero) return ("未知", 0);
-
-                uint bytesNeeded;
-                ptr = Marshal.AllocHGlobal(1024);
-
-                if (QueryServiceStatusEx(hService, 0, ptr, 1024, out bytesNeeded))
-                {
-                    var status = Marshal.PtrToStructure<SERVICE_STATUS_PROCESS>(ptr);
-                    string statusStr = status.dwCurrentState switch
-                    {
-                        1 => "已停止",
-                        2 => "启动中",
-                        3 => "停止中",
-                        4 => "运行中",
-                        _ => "未知"
-                    };
-                    return (statusStr, (int)status.dwProcessId);
-                }
+                int end = text.IndexOf('"', 1);
+                return end > 1 ? text.Substring(1, end - 1) : null;
             }
-            catch
-            {
-                // Ignore exceptions
-            }
-            finally
-            {
-                if (ptr != IntPtr.Zero) Marshal.FreeHGlobal(ptr);
-                if (hService != IntPtr.Zero) CloseServiceHandle(hService);
-                if (hSCManager != IntPtr.Zero) CloseServiceHandle(hSCManager);
-            }
+            int space = text.IndexOf(' ');
+            return space > 0 ? text.Substring(0, space) : null;
+        }
 
-            return ("未知", 0);
+        /// <summary>
+        /// 将多行启动参数合并为单行命令行（各行去除首尾空白、忽略空行，以空格拼接）
+        /// </summary>
+        public static string NormalizeArgs(string? args)
+        {
+            if (string.IsNullOrWhiteSpace(args)) return string.Empty;
+
+            var lines = args.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            return string.Join(" ", lines);
         }
     }
 }

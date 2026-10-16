@@ -1,0 +1,20 @@
+# 文本文件在仓库中统一以 LF 存储；Windows 检出时由 Git 按 core.autocrlf 转换
+* text=auto
+
+*.cs      text diff=csharp
+*.xaml    text
+*.csproj  text
+*.wixproj text
+*.wxs     text
+*.sln     text
+*.md      text
+*.json    text
+*.yml     text
+*.rtf     text
+
+*.png     binary
+*.ico     binary
+*.jpg     binary
+*.exe     binary
+*.dll     binary
+*.msi     binary
