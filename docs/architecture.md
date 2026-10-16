@@ -99,7 +99,7 @@ Idle ──BeginInitialStart──▶ Starting ──ProcessStarted──▶ Run
 
 | 工程 | 内容 | 运行环境 |
 |---|---|---|
-| `Services.Tests` | 纯逻辑单元测试（约 450 个），以及 `docs/cli.md` 与内置帮助一致性检查 | Linux / Windows |
+| `Services.Tests` | 纯逻辑单元测试（约 530 个），以及 `docs/cli.md` 与内置帮助一致性检查 | Linux / Windows |
 | `Services.IntegrationTests` | 端到端测试：通过 `servicesctl --json` 真实创建并操作服务 | Windows + 管理员（CI） |
 | `Services.TestTarget` | 集成测试用的目标程序（输出、退出码、Ctrl+C、子进程等） | — |
 
