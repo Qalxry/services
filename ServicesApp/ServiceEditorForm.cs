@@ -33,6 +33,9 @@ namespace ServicesApp
         private readonly ComboBox _stopModeBox;
         private readonly NumberBox _stopTimeoutBox;
         private readonly TextBox _stopCommandBox;
+        private readonly TextBox _preStartBox;
+        private readonly TextBox _postStopBox;
+        private readonly NumberBox _hookTimeoutBox;
         private readonly TextBox _webhookUrlBox;
         private readonly WebhookEventChecks _webhookEvents;
         private readonly ComboBox _healthTypeBox;
@@ -185,6 +188,20 @@ namespace ServicesApp
             };
             _stopModeBox.SelectionChanged += (s, e) => UpdateStopControls();
 
+            // Hooks: pre-start | post-stop, timeout
+            _preStartBox = new TextBox
+            {
+                Header = "启动前命令 (可选)",
+                Description = "每次启动程序前执行（含自动重启），失败或超时则不启动；占位符：{exe} {workdir}"
+            };
+            _postStopBox = new TextBox
+            {
+                Header = "停止后命令 (可选)",
+                Description = "程序每次退出后执行，失败只记录；占位符：{exe} {workdir} {pid} {exitcode}"
+            };
+            _hookTimeoutBox = CreateNumberBox("钩子命令超时 (秒)", 1, HookDefaults.MaxTimeoutSeconds, HookDefaults.TimeoutSeconds);
+            _hookTimeoutBox.Description = "在工作目录中通过 cmd 执行，输出写入服务日志";
+
             // Webhook (service level, overrides global)
             _webhookUrlBox = new TextBox
             {
@@ -280,6 +297,8 @@ namespace ServicesApp
             form.Add(_restartPolicyPanel);
             form.Add(_stopModeBox, _stopTimeoutBox);
             form.Add(_stopCommandBox);
+            form.Add(_preStartBox, _postStopBox);
+            form.Add(_hookTimeoutBox, null);
             form.Add(_webhookUrlBox, _webhookEvents.View);
             form.Add(_healthTypeBox, _healthTargetBox);
             form.Add(_healthIntervalBox, _healthTimeoutBox);
@@ -310,6 +329,9 @@ namespace ServicesApp
                 _stopModeBox.SelectedIndex = (int)existing.StopMode;
                 _stopTimeoutBox.Value = existing.StopTimeoutSeconds;
                 _stopCommandBox.Text = existing.StopCommand ?? "";
+                _preStartBox.Text = existing.PreStartCommand ?? "";
+                _postStopBox.Text = existing.PostStopCommand ?? "";
+                _hookTimeoutBox.Value = existing.HookTimeoutSeconds;
                 _webhookUrlBox.Text = string.IsNullOrWhiteSpace(existing.WebhookUrl) ? "" : WebhookSettings.Mask(existing.WebhookUrl);
                 _healthTypeBox.SelectedIndex = (int)existing.HealthCheckType;
                 _healthTargetBox.Text = existing.HealthCheckTarget ?? "";

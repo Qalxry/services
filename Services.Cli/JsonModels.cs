@@ -24,6 +24,8 @@ namespace Services.Cli
         public bool AutoRestart { get; set; }
         public RestartPolicyInfo RestartPolicy { get; set; } = new();
         public StopPolicyInfo StopPolicy { get; set; } = new();
+        /// <summary>钩子命令；均未设置时为 null</summary>
+        public HooksInfo? Hooks { get; set; }
         /// <summary>服务级失败通知；未设置（沿用全局设置）时为 null</summary>
         public WebhookInfo? Webhook { get; set; }
         /// <summary>健康检查配置；未启用时为 null</summary>
@@ -83,6 +85,13 @@ namespace Services.Cli
         /// <summary>kill / ctrl-c / command</summary>
         public string Mode { get; set; } = "kill";
         public string? Command { get; set; }
+        public int TimeoutSeconds { get; set; }
+    }
+
+    internal sealed class HooksInfo
+    {
+        public string? PreStart { get; set; }
+        public string? PostStop { get; set; }
         public int TimeoutSeconds { get; set; }
     }
 

@@ -127,6 +127,7 @@ JSON 字段:
   autoRestart       是否启用失败自动重启
   restartPolicy     { delaySeconds, maxRestarts (0=不限), resetMinutes, backoff }
   stopPolicy        { mode (kill | ctrl-c | command), command, timeoutSeconds }
+  hooks             钩子命令 { preStart, postStop, timeoutSeconds }，均未设置时为 null
   account           { type (localsystem | localservice | networkservice | virtual | user), name }
   webhook           服务级失败通知 { url, events }，未设置（沿用全局）时为 null；
                     url 默认遮蔽路径部分，--show-secrets 显示完整地址
@@ -198,6 +199,14 @@ servicesctl create - 创建新服务
                         {workdir} 工作目录（均自动加引号）、{pid} 进程 ID。
                         例：nginx 用 "{exe} -s quit"（若启动参数含 -p / -c，停止命令需带相同参数）
   --stop-timeout <秒>   优雅停止的最长等待时间，1-3600，默认 30。系统关机时最多等待 4 秒
+  --pre-start <命令>    启动前命令（类似 systemd ExecStartPre=）：每次启动目标程序之前执行（含自动重启），
+                        非 0 退出或超时则不启动，按启动失败处理（启用自动重启时重试，否则以失败状态停止）。
+                        在工作目录中通过 cmd 执行，环境变量与目标程序相同，输出写入服务日志。
+                        占位符：{exe} {workdir}。为空字符串时清除
+  --post-stop <命令>    停止后命令（类似 systemd ExecStopPost=）：目标程序每次退出之后执行
+                        （崩溃、正常退出、停止服务、重启之前），失败只记录。
+                        占位符：{exe} {workdir} {pid}（已退出的进程）{exitcode}。为空字符串时清除
+  --hook-timeout <秒>   钩子命令的超时，1-3600，默认 60；超时后结束命令进程树。系统关机时最多等待 4 秒
   --webhook-url <URL>   本服务的失败通知地址（覆盖全局设置，见 '{{Tool}} help webhook'）；
                         为空字符串时清除，改为沿用全局设置。地址只有管理员与服务运行账户可读
   --webhook-events <事件>
@@ -299,6 +308,14 @@ servicesctl update - 修改已有服务的配置（只修改指定的字段，�
                         {workdir} 工作目录（均自动加引号）、{pid} 进程 ID。
                         例：nginx 用 "{exe} -s quit"（若启动参数含 -p / -c，停止命令需带相同参数）
   --stop-timeout <秒>   优雅停止的最长等待时间，1-3600，默认 30。系统关机时最多等待 4 秒
+  --pre-start <命令>    启动前命令（类似 systemd ExecStartPre=）：每次启动目标程序之前执行（含自动重启），
+                        非 0 退出或超时则不启动，按启动失败处理（启用自动重启时重试，否则以失败状态停止）。
+                        在工作目录中通过 cmd 执行，环境变量与目标程序相同，输出写入服务日志。
+                        占位符：{exe} {workdir}。为空字符串时清除
+  --post-stop <命令>    停止后命令（类似 systemd ExecStopPost=）：目标程序每次退出之后执行
+                        （崩溃、正常退出、停止服务、重启之前），失败只记录。
+                        占位符：{exe} {workdir} {pid}（已退出的进程）{exitcode}。为空字符串时清除
+  --hook-timeout <秒>   钩子命令的超时，1-3600，默认 60；超时后结束命令进程树。系统关机时最多等待 4 秒
   --webhook-url <URL>   本服务的失败通知地址（覆盖全局设置，见 '{{Tool}} help webhook'）；
                         为空字符串时清除，改为沿用全局设置。地址只有管理员与服务运行账户可读
   --webhook-events <事件>
@@ -358,6 +375,7 @@ servicesctl update - 修改已有服务的配置（只修改指定的字段，�
   servicesctl update WinSvcMgr_MyApp_1a2b3c4d --startup manual --no-auto-restart
   servicesctl update nginx --stop-mode command --stop-command "{exe} -s quit" --stop-timeout 60
   servicesctl update MyApp --account virtual --restart
+  servicesctl update MyApp --pre-start "migrate.cmd --check" --post-stop "del /q app.lock" --hook-timeout 120
   servicesctl update MyApp --env NODE_ENV=production --env "PATH=%PATH%;C:\tools" --unset-env DEBUG --restart
   servicesctl update MyApp --startup delayed-auto --depends-on Tcpip --depends-on MySQL80
   "<密码>" | servicesctl update MyApp --account .\svcuser --password-stdin     (PowerShell)
@@ -519,6 +537,7 @@ servicesctl export - 导出服务配置为 JSON（可用于备份、版本管理
         "autoRestart": true,
         "restartPolicy": { "delaySeconds": 5, "maxRestarts": 5, "resetMinutes": 10, "backoff": true },
         "stopPolicy": { "mode": "kill", "command": null, "timeoutSeconds": 30 },
+        "hooks": { "preStart": "migrate.cmd", "postStop": null, "timeoutSeconds": 60 },
         "healthCheck": { "type": "http", "target": "http://127.0.0.1:8080/health", "intervalSeconds": 30,
                          "timeoutSeconds": 5, "failureThreshold": 3, "startPeriodSeconds": 30 },
         "resourceLimits": { "memoryMB": 512, "processMemoryMB": 0, "cpuPercent": 50, "maxProcesses": 0 }

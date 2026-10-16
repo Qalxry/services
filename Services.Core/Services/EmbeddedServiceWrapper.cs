@@ -84,10 +84,12 @@ namespace Services.Core.Services
                 CleanupLogsInBackground();
                 EnterJobObject();
 
+                int generation;
                 lock (_gate)
                 {
-                    decision = StartTargetLocked(_machine.BeginInitialStart());
+                    generation = _machine.BeginInitialStart();
                 }
+                decision = LaunchTarget(generation, () => RequestAdditionalTime(5000));
             }
             catch (Exception ex)
             {
@@ -108,12 +110,13 @@ namespace Services.Core.Services
 
         protected override void OnStop()
         {
-            StopTarget(_settings?.Stop.TimeoutSeconds ?? 0, () => RequestAdditionalTime(5000));
+            StopTarget(_settings?.Stop.TimeoutSeconds ?? 0, _settings?.Hooks.TimeoutSeconds ?? 0, () => RequestAdditionalTime(5000));
         }
 
         protected override void OnShutdown()
         {
-            StopTarget(Math.Min(_settings?.Stop.TimeoutSeconds ?? 0, ShutdownStopTimeoutSeconds), () => { });
+            StopTarget(Math.Min(_settings?.Stop.TimeoutSeconds ?? 0, ShutdownStopTimeoutSeconds),
+                Math.Min(_settings?.Hooks.TimeoutSeconds ?? 0, ShutdownStopTimeoutSeconds), () => { });
         }
 
         protected override void Dispose(bool disposing)
@@ -121,6 +124,7 @@ namespace Services.Core.Services
             if (disposing)
             {
                 _healthCts?.Dispose();
+                _postStopIdle.Dispose();
                 _stopCts.Dispose();
                 _startCompleted.Dispose();
             }
@@ -130,7 +134,7 @@ namespace Services.Core.Services
         #region 目标程序
 
         /// <summary>
-        /// 启动目标程序（调用方持有 _gate，状态机处于 Starting）。返回启动失败时的后续动作。
+        /// 启动目标程序（调用方持有 _gate，状态机处于 Starting，启动前命令已执行）。返回启动失败时的后续动作。
         /// </summary>
         private SupervisorDecision StartTargetLocked(int generation)
         {
@@ -171,6 +175,7 @@ namespace Services.Core.Services
                 _process?.Dispose();
                 _process = process;
                 _machine!.ProcessStarted(generation);
+                TargetStartedLocked(generation, process.Id);
                 _runtime?.ProcessStarted(process.Id, DateTime.Now);
                 StartHealthMonitor(process, generation);
                 return SupervisorDecision.None;
@@ -202,6 +207,7 @@ namespace Services.Core.Services
             // 先读完剩余输出，使日志中程序的最后几行出现在“进程退出”之前
             ProcessOutput.Drain(process, ProcessOutput.DrainTimeout);
             string? healthReason = null;
+            int? postStopPid;
 
             SupervisorDecision decision;
             lock (_gate)
@@ -220,7 +226,12 @@ namespace Services.Core.Services
                 if (_machine.IsStopping) return;
 
                 decision = _machine.ProcessExited(generation, exitCode, DateTime.Now);
+                postStopPid = ClaimPostStopLocked(generation);
             }
+
+            // 停止后命令在重启等待 / 停止服务之前执行完
+            if (postStopPid is { } pid)
+                RunPostStop(pid, exitCode, _settings!.Hooks.TimeoutSeconds, () => { });
 
             // 因健康检查失败被结束：失败原因中注明，便于定位
             if (healthReason != null && decision.Action == SupervisorAction.FailService)
@@ -270,13 +281,12 @@ namespace Services.Core.Services
             {
                 if (t.IsCanceled) return;
 
-                SupervisorDecision next;
+                int generation;
                 lock (_gate)
                 {
-                    if (!_machine!.TryBeginRestart(scheduledBy, out var generation)) return;
-                    next = StartTargetLocked(generation);
+                    if (!_machine!.TryBeginRestart(scheduledBy, out generation)) return;
                 }
-                Execute(next);
+                Execute(LaunchTarget(generation, () => { }));
             }, TaskScheduler.Default);
         }
 
@@ -307,17 +317,21 @@ namespace Services.Core.Services
 
         #region 停止
 
-        private void StopTarget(int timeoutSeconds, Action requestAdditionalTime)
+        private void StopTarget(int timeoutSeconds, int hookTimeoutSeconds, Action requestAdditionalTime)
         {
             Process? process;
+            int? postStopPid;
             lock (_gate)
             {
                 // 停止流程只执行一次；_machine 为 null 表示启动阶段已失败，只需清理
                 if (_machine != null && !_machine.BeginStop()) return;
                 process = _process;
                 _process = null;
+                postStopPid = ClaimPostStopLocked(_startedGeneration);
             }
+            // 取消重启等待与正在执行的启动前命令
             _stopCts.Cancel();
+            int? exitCode = null;
 
             if (process != null)
             {
@@ -330,6 +344,7 @@ namespace Services.Core.Services
                             .Stop(process, timeoutSeconds);
                     }
                     ProcessOutput.Drain(process, ProcessOutput.DrainTimeout);
+                    if (process.HasExited) exitCode = process.ExitCode;
                 }
                 catch (Exception ex)
                 {
@@ -337,6 +352,12 @@ namespace Services.Core.Services
                 }
                 process.Dispose();
             }
+
+            // 停止后命令：由本流程认领则执行，否则等待退出事件中正在执行的命令完成
+            if (postStopPid is { } pid)
+                RunPostStop(pid, exitCode, hookTimeoutSeconds, requestAdditionalTime);
+            else
+                WaitForPostStop(hookTimeoutSeconds, requestAdditionalTime);
 
             _runtime?.ProcessGone();
             lock (_gate)
@@ -366,7 +387,7 @@ namespace Services.Core.Services
         {
             RecordFailure(exitCode, reason);
             ExitCode = exitCode;
-            StopTarget(0, () => { });
+            StopTarget(0, 0, () => { });
             throw new ServiceStartFailedException(reason);
         }
 

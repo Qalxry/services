@@ -13,7 +13,7 @@ namespace Services.Cli
     {
         private static readonly string[] ConfigValueOptions =
             { "exe", "workdir", "args", "description", "startup", "restart-delay", "max-restarts", "restart-reset",
-              "stop-mode", "stop-command", "stop-timeout", "health-check", "health-target", "health-interval", "health-timeout", "health-retries", "health-start-period",
+              "stop-mode", "stop-command", "stop-timeout", "pre-start", "post-stop", "hook-timeout", "health-check", "health-target", "health-interval", "health-timeout", "health-retries", "health-start-period",
               "webhook-url", "webhook-events",
               "memory-limit", "process-memory-limit", "cpu-limit", "max-processes", "account", "env", "secret-env", "unset-env", "depends-on" };
 

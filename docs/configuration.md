@@ -61,6 +61,9 @@ MSI 安装 / 升级后会自动执行）时，模板被复制到 `wrapper\<版�
 | `StopMode` | REG_DWORD | 0 结束进程树、1 发送 Ctrl+C、2 执行停止命令 | 0 |
 | `StopCommand` | REG_SZ | 停止命令，支持 `{exe}` `{workdir}` `{pid}` | 空 |
 | `StopTimeoutSeconds` | REG_DWORD | 优雅停止的最长等待（1–3600 秒） | 30 |
+| `PreStartCommand` | REG_SZ | 启动前命令，支持 `{exe}` `{workdir}`；失败则不启动 | 空 |
+| `PostStopCommand` | REG_SZ | 停止后命令，支持 `{exe}` `{workdir}` `{pid}` `{exitcode}` | 空 |
+| `HookTimeoutSeconds` | REG_DWORD | 钩子命令的超时（1–3600 秒） | 60 |
 | `HealthCheckType` | REG_DWORD | 健康检查：0 不检查、1 HTTP、2 TCP、3 命令 | 0 |
 | `HealthCheckTarget` | REG_SZ | URL / host:port / 命令 | 空 |
 | `HealthCheckIntervalSeconds` | REG_DWORD | 检查间隔（1–3600 秒） | 30 |
@@ -137,6 +140,7 @@ MSI 安装 / 升级后会自动执行）时，模板被复制到 `wrapper\<版�
       "autoRestart": true,
       "restartPolicy": { "delaySeconds": 5, "maxRestarts": 5, "resetMinutes": 10, "backoff": true },
       "stopPolicy": { "mode": "command", "command": "{exe} -s quit", "timeoutSeconds": 30 },
+      "hooks": { "preStart": "migrate.cmd", "postStop": null, "timeoutSeconds": 60 },  // 省略：不执行
       "webhook": { "url": null, "events": [ "failed", "unhealthy" ] },  // url 为 null：沿用已保存的地址
       "healthCheck": { "type": "http", "target": "http://127.0.0.1:8080/health", "intervalSeconds": 30,
                        "timeoutSeconds": 5, "failureThreshold": 3, "startPeriodSeconds": 30 },

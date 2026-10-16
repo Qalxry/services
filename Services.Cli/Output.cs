@@ -70,6 +70,12 @@ namespace Services.Cli
                     Command = string.IsNullOrEmpty(s.StopCommand) ? null : s.StopCommand,
                     TimeoutSeconds = s.StopTimeoutSeconds
                 },
+                Hooks = string.IsNullOrWhiteSpace(s.PreStartCommand) && string.IsNullOrWhiteSpace(s.PostStopCommand) ? null : new HooksInfo
+                {
+                    PreStart = string.IsNullOrWhiteSpace(s.PreStartCommand) ? null : s.PreStartCommand,
+                    PostStop = string.IsNullOrWhiteSpace(s.PostStopCommand) ? null : s.PostStopCommand,
+                    TimeoutSeconds = s.HookTimeoutSeconds
+                },
                 Webhook = string.IsNullOrWhiteSpace(s.WebhookUrl) ? null : new WebhookInfo
                 {
                     Url = showSecrets ? s.WebhookUrl : WebhookSettings.Mask(s.WebhookUrl),

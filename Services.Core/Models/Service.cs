@@ -125,6 +125,13 @@ namespace Services.Core.Models
         public string? StopCommand { get; set; }
         public int StopTimeoutSeconds { get; set; } = StopPolicyDefaults.TimeoutSeconds;
 
+        /// <summary>启动前命令：每次启动目标程序前执行，失败（非 0、超时）则不启动；空表示不执行</summary>
+        public string? PreStartCommand { get; set; }
+        /// <summary>停止后命令：目标程序每次退出后执行，失败只记录；空表示不执行</summary>
+        public string? PostStopCommand { get; set; }
+        /// <summary>钩子命令的超时（秒）</summary>
+        public int HookTimeoutSeconds { get; set; } = HookDefaults.TimeoutSeconds;
+
         /// <summary>健康检查方式；None 表示不检查（其余字段见 <see cref="HealthCheckDefaults"/>）</summary>
         public HealthCheckType HealthCheckType { get; set; } = HealthCheckType.None;
         /// <summary>检查目标：http 为 URL，tcp 为 host:port，command 为命令行</summary>
@@ -193,6 +200,9 @@ namespace Services.Core.Models
             StopMode = other.StopMode;
             StopCommand = other.StopCommand;
             StopTimeoutSeconds = other.StopTimeoutSeconds;
+            PreStartCommand = other.PreStartCommand;
+            PostStopCommand = other.PostStopCommand;
+            HookTimeoutSeconds = other.HookTimeoutSeconds;
             HealthCheckType = other.HealthCheckType;
             HealthCheckTarget = other.HealthCheckTarget;
             HealthCheckIntervalSeconds = other.HealthCheckIntervalSeconds;
@@ -245,6 +255,9 @@ namespace Services.Core.Models
         public ServiceStopMode StopMode { get; set; } = ServiceStopMode.Kill;
         public string? StopCommand { get; set; }
         public int StopTimeoutSeconds { get; set; } = StopPolicyDefaults.TimeoutSeconds;
+        public string? PreStartCommand { get; set; }
+        public string? PostStopCommand { get; set; }
+        public int HookTimeoutSeconds { get; set; } = HookDefaults.TimeoutSeconds;
         public HealthCheckType HealthCheckType { get; set; } = HealthCheckType.None;
         public string? HealthCheckTarget { get; set; }
         public int HealthCheckIntervalSeconds { get; set; } = HealthCheckDefaults.IntervalSeconds;
@@ -293,6 +306,9 @@ namespace Services.Core.Models
                 StopMode = service.StopMode,
                 StopCommand = service.StopCommand,
                 StopTimeoutSeconds = service.StopTimeoutSeconds,
+                PreStartCommand = service.PreStartCommand,
+                PostStopCommand = service.PostStopCommand,
+                HookTimeoutSeconds = service.HookTimeoutSeconds,
                 HealthCheckType = service.HealthCheckType,
                 HealthCheckTarget = service.HealthCheckTarget,
                 HealthCheckIntervalSeconds = service.HealthCheckIntervalSeconds,
@@ -370,6 +386,15 @@ namespace Services.Core.Models
         Tcp = 2,
         /// <summary>命令退出码为 0 为健康</summary>
         Command = 3
+    }
+
+    /// <summary>
+    /// 钩子命令（启动前 / 停止后）的超时默认值与上限
+    /// </summary>
+    public static class HookDefaults
+    {
+        public const int TimeoutSeconds = 60;
+        public const int MaxTimeoutSeconds = 3600;
     }
 
     /// <summary>

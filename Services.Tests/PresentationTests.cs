@@ -42,6 +42,14 @@ namespace Services.Tests
         }
 
         [Fact]
+        public void Hooks()
+        {
+            Assert.Equal("未设置", ServiceText.Hooks(null, " ", 60));
+            Assert.Equal("启动前：migrate.cmd（超时 60 秒）", ServiceText.Hooks("migrate.cmd", null, 60));
+            Assert.Equal("启动前：a.cmd；停止后：b.cmd {exitcode}（超时 120 秒）", ServiceText.Hooks("a.cmd", "b.cmd {exitcode}", 120));
+        }
+
+        [Fact]
         public void ResourceLimits()
         {
             Assert.Equal("不限制", ServiceText.ResourceLimits(0, 0, 0, 0));

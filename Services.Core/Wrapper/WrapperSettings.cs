@@ -46,6 +46,7 @@ namespace Services.Core.Wrapper
         public bool SecretsUnavailable { get; init; }
         public RestartPolicySettings Restart { get; init; } = RestartPolicySettings.Default;
         public StopPolicySettings Stop { get; init; } = StopPolicySettings.Default;
+        public HookSettings Hooks { get; init; } = HookSettings.None;
         public ResourceLimits Limits { get; init; } = ResourceLimits.None;
         public HealthCheckSettings Health { get; init; } = HealthCheckSettings.None;
         /// <summary>服务名称（显示名称），用于通知</summary>
@@ -80,6 +81,7 @@ namespace Services.Core.Wrapper
                 SecretsUnavailable = hasSecrets && secrets == null,
                 Restart = Try(() => LoadRestartPolicy(key), RestartPolicySettings.Default),
                 Stop = Try(() => LoadStopPolicy(key), StopPolicySettings.Default),
+                Hooks = Try(() => LoadHooks(key), HookSettings.None),
                 Limits = Try(() => new ResourceLimits(
                     ReadNonNegative(key, ParameterNames.MemoryLimitMB),
                     ReadNonNegative(key, ParameterNames.ProcessMemoryLimitMB),
@@ -116,6 +118,16 @@ namespace Services.Core.Wrapper
             if (mode == ServiceStopMode.Command && string.IsNullOrWhiteSpace(command))
                 mode = ServiceStopMode.Kill;
             return new StopPolicySettings(mode, command, timeout);
+        }
+
+        private static HookSettings LoadHooks(RegistryKey key)
+        {
+            var timeout = key.GetValue(ParameterNames.HookTimeoutSeconds) is int t && t > 0
+                ? Math.Min(t, HookDefaults.MaxTimeoutSeconds) : HookDefaults.TimeoutSeconds;
+            return new HookSettings(
+                (key.GetValue(ParameterNames.PreStartCommand) as string ?? "").Trim(),
+                (key.GetValue(ParameterNames.PostStopCommand) as string ?? "").Trim(),
+                timeout);
         }
 
         private static HealthCheckSettings LoadHealthCheck(RegistryKey key)

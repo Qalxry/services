@@ -312,6 +312,51 @@ namespace Services.Tests
         }
 
         [Fact]
+        public void Hooks_RoundTripAndDiff()
+        {
+            var service = FullService();
+            service.PreStartCommand = "migrate.cmd";
+            service.PostStopCommand = "cleanup.cmd {exitcode}";
+            service.HookTimeoutSeconds = 120;
+
+            var definition = ConfigFileMapper.ToDefinition(service);
+            Assert.Equal("migrate.cmd", definition.Hooks!.PreStart);
+            Assert.Equal(120, definition.Hooks.TimeoutSeconds);
+            var json = ConfigFileMapper.Serialize(new ConfigFile { Services = { definition } });
+            Assert.Contains("\"preStart\": \"migrate.cmd\"", json);
+
+            var config = ConfigFileMapper.ToConfig(definition, "services[0]");
+            Assert.Empty(ConfigFileMapper.Diff(ServiceConfig.FromService(service), config));
+
+            definition.Hooks.PostStop = null;
+            config = ConfigFileMapper.ToConfig(definition, "services[0]");
+            Assert.Equal("", config.PostStopCommand);
+            Assert.Equal(new[] { "hooks" }, ConfigFileMapper.Diff(ServiceConfig.FromService(service), config));
+        }
+
+        [Fact]
+        public void Hooks_OmittedWhenUnsetAndTimeoutIgnored()
+        {
+            var service = Existing("id", "A");
+            service.HookTimeoutSeconds = 300;
+            Assert.Null(ConfigFileMapper.ToDefinition(service).Hooks);
+
+            // 未设置任何钩子命令时超时不同不算差异
+            var config = ConfigFileMapper.ToConfig(Minimal(), "services[0]");
+            Assert.Equal(HookDefaults.TimeoutSeconds, config.HookTimeoutSeconds);
+            Assert.DoesNotContain("hooks", ConfigFileMapper.Diff(ServiceConfig.FromService(service), config));
+        }
+
+        [Fact]
+        public void Hooks_TimeoutOutOfRangeIsRejected()
+        {
+            var definition = Minimal();
+            definition.Hooks = new HooksDefinition { PreStart = "a.cmd", TimeoutSeconds = 0 };
+            var ex = Assert.Throws<ConfigFileException>(() => ConfigFileMapper.ToConfig(definition, "services[2]"));
+            Assert.Contains("services[2].hooks.timeoutSeconds", ex.Message);
+        }
+
+        [Fact]
         public void ResourceLimits_OutOfRangeIsRejected()
         {
             var definition = Minimal();

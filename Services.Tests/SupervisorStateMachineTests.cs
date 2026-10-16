@@ -219,6 +219,47 @@ namespace Services.Tests
         }
 
         [Fact]
+        public void PreStartFailureIsRetriedThenFails()
+        {
+            var machine = new SupervisorStateMachine(new RestartPolicySettings(true, 1, 1, 10, false));
+            var gen = machine.BeginInitialStart();
+            Assert.True(machine.IsStarting(gen));
+
+            var retry = machine.PreStartFailed(gen, "Pre-start command exited with code 3", T0);
+            Assert.Equal(SupervisorAction.ScheduleRestart, retry.Action);
+            Assert.Equal("Retry", retry.Reason);
+            Assert.False(machine.IsStarting(gen));
+
+            Assert.True(machine.TryBeginRestart(gen, out var next));
+            var fail = machine.PreStartFailed(next, "Pre-start command exited with code 3", T0.AddSeconds(2));
+            Assert.Equal(SupervisorAction.FailService, fail.Action);
+            Assert.Equal(SupervisorStateMachine.ErrorProcessAborted, fail.ExitCode);
+            Assert.Equal("Pre-start command exited with code 3", fail.Reason);
+        }
+
+        [Fact]
+        public void PreStartFailureWithoutAutoRestartFails()
+        {
+            var machine = new SupervisorStateMachine(new RestartPolicySettings(false, 1, 0, 10, false));
+            var gen = machine.BeginInitialStart();
+            var decision = machine.PreStartFailed(gen, "Pre-start command did not finish within 60s", T0);
+            Assert.Equal(SupervisorAction.FailService, decision.Action);
+            Assert.Equal("Pre-start command did not finish within 60s", decision.Reason);
+        }
+
+        [Fact]
+        public void StopDuringPreStartPreventsLaunch()
+        {
+            var machine = new SupervisorStateMachine(RestartPolicySettings.Default);
+            var gen = machine.BeginInitialStart();
+
+            // 启动前命令执行期间服务被停止：命令被取消，失败与启动都不再生效
+            Assert.True(machine.BeginStop());
+            Assert.False(machine.IsStarting(gen));
+            Assert.Equal(SupervisorDecision.None, machine.PreStartFailed(gen, "cancelled", T0));
+        }
+
+        [Fact]
         public void InitialStartOnlyOnce()
         {
             var machine = new SupervisorStateMachine(RestartPolicySettings.Default);

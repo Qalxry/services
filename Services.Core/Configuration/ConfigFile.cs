@@ -46,6 +46,8 @@ namespace Services.Core.Configuration
         public bool AutoRestart { get; set; }
         public RestartPolicyDefinition? RestartPolicy { get; set; }
         public StopPolicyDefinition? StopPolicy { get; set; }
+        /// <summary>钩子命令；省略表示不执行</summary>
+        public HooksDefinition? Hooks { get; set; }
         /// <summary>服务级失败通知；省略表示沿用全局设置</summary>
         public WebhookDefinition? Webhook { get; set; }
         /// <summary>健康检查；省略表示不检查</summary>
@@ -88,6 +90,15 @@ namespace Services.Core.Configuration
         public int MaxRestarts { get; set; } = RestartPolicyDefaults.MaxRestarts;
         public int ResetMinutes { get; set; } = RestartPolicyDefaults.ResetMinutes;
         public bool Backoff { get; set; } = RestartPolicyDefaults.Backoff;
+    }
+
+    public sealed class HooksDefinition
+    {
+        /// <summary>启动前命令（每次启动目标程序前执行，失败则不启动）</summary>
+        public string? PreStart { get; set; }
+        /// <summary>停止后命令（目标程序每次退出后执行）</summary>
+        public string? PostStop { get; set; }
+        public int TimeoutSeconds { get; set; } = HookDefaults.TimeoutSeconds;
     }
 
     public sealed class StopPolicyDefinition
@@ -208,6 +219,14 @@ namespace Services.Core.Configuration
                     Command = string.IsNullOrWhiteSpace(service.StopCommand) ? null : service.StopCommand,
                     TimeoutSeconds = service.StopTimeoutSeconds
                 },
+                Hooks = string.IsNullOrWhiteSpace(service.PreStartCommand) && string.IsNullOrWhiteSpace(service.PostStopCommand)
+                    ? null
+                    : new HooksDefinition
+                    {
+                        PreStart = string.IsNullOrWhiteSpace(service.PreStartCommand) ? null : service.PreStartCommand,
+                        PostStop = string.IsNullOrWhiteSpace(service.PostStopCommand) ? null : service.PostStopCommand,
+                        TimeoutSeconds = service.HookTimeoutSeconds
+                    },
                 Webhook = string.IsNullOrWhiteSpace(service.WebhookUrl)
                     ? null
                     : new WebhookDefinition
@@ -285,6 +304,10 @@ namespace Services.Core.Configuration
                 StopMode = ParseStopMode(stop.Mode, path),
                 StopCommand = stop.Command?.Trim() ?? "",
                 StopTimeoutSeconds = CheckRange(stop.TimeoutSeconds, 1, StopPolicyDefaults.MaxTimeoutSeconds, $"{path}.stopPolicy.timeoutSeconds"),
+                PreStartCommand = definition.Hooks?.PreStart?.Trim() ?? "",
+                PostStopCommand = definition.Hooks?.PostStop?.Trim() ?? "",
+                HookTimeoutSeconds = CheckRange(definition.Hooks?.TimeoutSeconds ?? HookDefaults.TimeoutSeconds, 1,
+                    HookDefaults.MaxTimeoutSeconds, $"{path}.hooks.timeoutSeconds"),
                 WebhookUrl = definition.Webhook == null ? "" : definition.Webhook.Url?.Trim() ?? KeepExistingSecret,
                 WebhookEvents = ParseWebhookEvents(definition.Webhook?.Events, path),
                 HealthCheckType = healthType,
@@ -365,6 +388,10 @@ namespace Services.Core.Configuration
             Check("stopPolicy", current.StopMode == desired.StopMode &&
                 Normalize(current.StopCommand) == Normalize(desired.StopCommand) &&
                 current.StopTimeoutSeconds == desired.StopTimeoutSeconds);
+            Check("hooks", Normalize(current.PreStartCommand) == Normalize(desired.PreStartCommand) &&
+                Normalize(current.PostStopCommand) == Normalize(desired.PostStopCommand) &&
+                (string.IsNullOrWhiteSpace(desired.PreStartCommand) && string.IsNullOrWhiteSpace(desired.PostStopCommand) ||
+                 current.HookTimeoutSeconds == desired.HookTimeoutSeconds));
             Check("webhook", Normalize(current.WebhookUrl) == Normalize(desired.WebhookUrl) &&
                 (string.IsNullOrWhiteSpace(desired.WebhookUrl) ||
                  Notifications.WebhookEvents.Format(Notifications.WebhookEvents.Parse(current.WebhookEvents)) ==

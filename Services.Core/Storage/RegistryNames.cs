@@ -52,6 +52,9 @@ namespace Services.Core.Storage
         public const string StopMode = "StopMode";
         public const string StopCommand = "StopCommand";
         public const string StopTimeoutSeconds = "StopTimeoutSeconds";
+        public const string PreStartCommand = "PreStartCommand";
+        public const string PostStopCommand = "PostStopCommand";
+        public const string HookTimeoutSeconds = "HookTimeoutSeconds";
         public const string HealthCheckType = "HealthCheckType";
         public const string HealthCheckTarget = "HealthCheckTarget";
         public const string HealthCheckIntervalSeconds = "HealthCheckIntervalSeconds";

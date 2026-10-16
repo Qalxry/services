@@ -56,6 +56,14 @@ servicesctl logs MyApp --stream stderr --since 10m
 - **停止很慢**：优雅停止最多等待 `--stop-timeout` 秒（默认 30），超时后结束进程树。
 - **系统关机时**：最多等待 4 秒。
 
+## 钩子命令
+
+- 日志中 `[pre-start]` / `[post-stop]` 开头的行是命令的输出；`Pre-start command exited with code N` /
+  `did not finish within Ns` 说明启动前命令失败的原因，同时也是服务的“最近失败原因”。
+- 启动前命令失败时目标程序不会启动：未启用自动重启则服务以失败状态停止，启用时按重启策略重试。
+- 命令在工作目录中通过 `cmd /d /s /c` 执行，运行账户与目标程序相同；低权限账户需要对命令中用到的文件有权限。
+- 耗时较长的准备工作（如数据库迁移）请增大 `--hook-timeout`（默认 60 秒）。系统关机时停止后命令最多等待 4 秒。
+
 ## 健康检查
 
 - 日志中的 `Health check failed (n/N): ...` 说明每次失败的原因（HTTP 状态码、连接错误、命令退出码、超时）。

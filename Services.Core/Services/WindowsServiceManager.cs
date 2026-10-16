@@ -334,6 +334,9 @@ namespace Services.Core.Services
                 throw new ArgumentException(webhookError);
             Notifications.WebhookEvents.Parse(config.WebhookEvents);
 
+            if (config.HookTimeoutSeconds is < 1 or > HookDefaults.MaxTimeoutSeconds)
+                throw new ArgumentException($"Hook timeout must be between 1 and {HookDefaults.MaxTimeoutSeconds} seconds.");
+
             if (Health.HealthCheckSpec.Validate(config.HealthCheckType, config.HealthCheckTarget) is { } healthError)
                 throw new ArgumentException(healthError);
             if (config.HealthCheckIntervalSeconds is < 1 or > HealthCheckDefaults.MaxIntervalSeconds ||

@@ -39,6 +39,9 @@ namespace Services.Core.Storage
             key.SetValue(ParameterNames.StopMode, (int)config.StopMode, RegistryValueKind.DWord);
             key.SetValue(ParameterNames.StopCommand, config.StopCommand ?? "");
             key.SetValue(ParameterNames.StopTimeoutSeconds, config.StopTimeoutSeconds, RegistryValueKind.DWord);
+            key.SetValue(ParameterNames.PreStartCommand, config.PreStartCommand ?? "");
+            key.SetValue(ParameterNames.PostStopCommand, config.PostStopCommand ?? "");
+            key.SetValue(ParameterNames.HookTimeoutSeconds, config.HookTimeoutSeconds, RegistryValueKind.DWord);
             key.SetValue(ParameterNames.HealthCheckType, (int)config.HealthCheckType, RegistryValueKind.DWord);
             key.SetValue(ParameterNames.HealthCheckTarget, config.HealthCheckTarget ?? "");
             key.SetValue(ParameterNames.HealthCheckIntervalSeconds, config.HealthCheckIntervalSeconds, RegistryValueKind.DWord);
@@ -135,6 +138,9 @@ namespace Services.Core.Storage
                     ? (ServiceStopMode)stopMode : ServiceStopMode.Kill,
                 StopCommand = p.GetValue(ParameterNames.StopCommand) as string,
                 StopTimeoutSeconds = ReadInt(p, ParameterNames.StopTimeoutSeconds, v => v > 0, StopPolicyDefaults.TimeoutSeconds),
+                PreStartCommand = p.GetValue(ParameterNames.PreStartCommand) as string,
+                PostStopCommand = p.GetValue(ParameterNames.PostStopCommand) as string,
+                HookTimeoutSeconds = ReadInt(p, ParameterNames.HookTimeoutSeconds, v => v > 0, HookDefaults.TimeoutSeconds),
                 HealthCheckType = p.GetValue(ParameterNames.HealthCheckType) is int healthType && Enum.IsDefined(typeof(HealthCheckType), healthType)
                     ? (HealthCheckType)healthType : HealthCheckType.None,
                 HealthCheckTarget = p.GetValue(ParameterNames.HealthCheckTarget) as string,

@@ -130,6 +130,14 @@ namespace Services.Core.Presentation
             return message != null ? $"{text}：{message}" : text;
         }
 
+        public static string Hooks(string? preStart, string? postStop, int timeoutSeconds)
+        {
+            var parts = new List<string>();
+            if (!string.IsNullOrWhiteSpace(preStart)) parts.Add($"启动前：{preStart.Trim()}");
+            if (!string.IsNullOrWhiteSpace(postStop)) parts.Add($"停止后：{postStop.Trim()}");
+            return parts.Count == 0 ? "未设置" : $"{string.Join("；", parts)}（超时 {timeoutSeconds} 秒）";
+        }
+
         public static string ResourceLimits(int memoryMB, int processMemoryMB, int cpuPercent, int maxProcesses)
         {
             var parts = new List<string>();

@@ -95,6 +95,21 @@ namespace Services.Cli
                 config.StopTimeoutSeconds = stopTimeout;
                 changed++;
             }
+            if (args.GetValue("pre-start") is { } preStart)
+            {
+                config.PreStartCommand = preStart.Trim();
+                changed++;
+            }
+            if (args.GetValue("post-stop") is { } postStop)
+            {
+                config.PostStopCommand = postStop.Trim();
+                changed++;
+            }
+            if (args.GetInt("hook-timeout", 1, HookDefaults.MaxTimeoutSeconds) is { } hookTimeout)
+            {
+                config.HookTimeoutSeconds = hookTimeout;
+                changed++;
+            }
 
             if (args.GetValue("webhook-url") is { } webhookUrl)
             {

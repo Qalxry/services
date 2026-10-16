@@ -118,10 +118,22 @@ namespace Services.Core.Wrapper
             if (fileNotFound)
                 return Fail(ErrorFileNotFound, $"Executable not found: {exePath}");
 
-            var reason = $"Failed to start process: {error}";
-            if (!_policy.Enabled) return Fail(ErrorProcessAborted, reason);
-            return ScheduleRestart(now, "Retry") ?? Fail(ErrorProcessAborted, reason);
+            return StartFailed($"Failed to start process: {error}", now);
         }
+
+        /// <summary>
+        /// 启动前命令失败（目标程序未启动）：与启动失败相同，按重启策略重试，未启用自动重启时以失败停止。
+        /// </summary>
+        public SupervisorDecision PreStartFailed(int generation, string error, DateTime now)
+        {
+            if (State != SupervisorState.Starting || Generation != generation) return SupervisorDecision.None;
+            return StartFailed(error, now);
+        }
+
+        /// <summary>
+        /// 是否仍处于该代数的启动阶段（启动前命令在锁外执行，期间服务可能已被停止）
+        /// </summary>
+        public bool IsStarting(int generation) => State == SupervisorState.Starting && Generation == generation;
 
         /// <summary>
         /// 目标程序退出。服务停止期间或属于旧进程的退出事件被忽略。
@@ -157,6 +169,12 @@ namespace Services.Core.Wrapper
         public void Stopped()
         {
             State = SupervisorState.Stopped;
+        }
+
+        private SupervisorDecision StartFailed(string reason, DateTime now)
+        {
+            if (!_policy.Enabled) return Fail(ErrorProcessAborted, reason);
+            return ScheduleRestart(now, "Retry") ?? Fail(ErrorProcessAborted, reason);
         }
 
         private SupervisorDecision? ScheduleRestart(DateTime now, string kind)

@@ -46,6 +46,14 @@ namespace Services.Tests
         }
 
         [Fact]
+        public void Expand_ExitCodeAndMissingPid()
+        {
+            Assert.Equal("cleanup.cmd 1234 3", StopCommandLine.Expand("cleanup.cmd {pid} {ExitCode}", @"C:.exe", @"C:", 1234, 3));
+            Assert.Equal("cleanup.cmd  -1", StopCommandLine.Expand("cleanup.cmd {pid} {exitcode}", @"C:.exe", @"C:", null, -1));
+            Assert.Equal("prepare.cmd", StopCommandLine.Expand("prepare.cmd {exitcode}", @"C:.exe", @"C:", null));
+        }
+
+        [Fact]
         public void ToCmdArguments_WrapsCommandForCmdSlashS()
         {
             var args = StopCommandLine.ToCmdArguments(@"""C:\a b\nginx.exe"" -s quit");
