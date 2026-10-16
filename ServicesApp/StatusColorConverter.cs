@@ -45,6 +45,20 @@ namespace ServicesApp
         }
     }
 
+    /// <summary>
+    /// 运行时长 → 短文本（未运行时为 —）
+    /// </summary>
+    public class UptimeConverter : IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, string language) =>
+            value is TimeSpan uptime ? ServiceText.Duration(uptime) : "—";
+
+        public object ConvertBack(object value, Type targetType, object parameter, string language)
+        {
+            throw new NotImplementedException();
+        }
+    }
+
     public class BooleanToVisibilityConverter : IValueConverter
     {
         public object Convert(object value, Type targetType, object parameter, string language)

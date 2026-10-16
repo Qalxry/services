@@ -27,6 +27,7 @@ namespace Services.Tests
             if (type == typeof(bool)) return !(bool)current!;
             if (type == typeof(int)) return (int)current! + 100 + seed;
             if (type == typeof(DateTime)) return new DateTime(2024, 1, 1).AddDays(seed);
+            if (type == typeof(TimeSpan?)) return TimeSpan.FromMinutes(5 + seed);
             if (type.IsEnum)
             {
                 return Enum.GetValues(type).Cast<object>().First(v => !Equals(v, current));

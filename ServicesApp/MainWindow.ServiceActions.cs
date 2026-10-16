@@ -85,7 +85,7 @@ namespace ServicesApp
         {
             if (sender is Button btn && btn.Tag is string serviceId)
             {
-                var service = Services.FirstOrDefault(s => s.Id == serviceId);
+                var service = _allServices.FirstOrDefault(s => s.Id == serviceId);
                 if (service != null)
                 {
                     ShowLogViewer(service.Id, service.Name);
@@ -178,7 +178,7 @@ namespace ServicesApp
         {
             if (sender is Button btn && btn.Tag is string id)
             {
-                var service = Services.FirstOrDefault(s => s.Id == id);
+                var service = _allServices.FirstOrDefault(s => s.Id == id);
                 if (service != null)
                 {
                     await ShowServiceEditorAsync(service);

@@ -90,7 +90,7 @@ servicesctl list - 列出所有由 ServicesApp 管理的服务
   servicesctl list [--json] [--show-secrets]
 
 输出:
-  默认输出表格：ID、名称、状态、PID、启动类型、程序路径（按添加顺序排列）。
+  默认输出表格：ID、名称、状态、PID、运行时长、启动类型、程序路径（按添加顺序排列）。
   --json 时输出服务对象数组，每个对象的字段见 'servicesctl help get'。
   --show-secrets 时 JSON 中包含敏感环境变量的值（需要管理员权限才能读取）。
 

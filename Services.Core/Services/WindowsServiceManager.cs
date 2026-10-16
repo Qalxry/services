@@ -106,11 +106,13 @@ namespace Services.Core.Services
             await Task.Run(() =>
             {
                 var (state, pid) = ScmClient.QueryStatus(service.Id);
+                var uptime = ComputeUptime(service.Id, state, pid);
 
-                if (service.State != state || service.Pid != pid)
+                if (service.State != state || service.Pid != pid || service.Uptime != uptime)
                 {
                     service.State = state;
                     service.Pid = pid;
+                    service.Uptime = uptime;
                     service.UpdatedAt = DateTime.Now;
                     ServiceUpdated?.Invoke(this, CloneService(service));
                 }
@@ -131,6 +133,7 @@ namespace Services.Core.Services
                     foreach (var service in loaded.Values)
                     {
                         (service.State, service.Pid) = ScmClient.QueryStatus(service.Id);
+                        service.Uptime = ComputeUptime(service.Id, service.State, service.Pid);
                     }
                     return loaded;
                 }
@@ -145,6 +148,16 @@ namespace Services.Core.Services
             {
                 _services = services;
             }
+        }
+
+        /// <summary>
+        /// 运行时长取自包装器写入的运行状态（按秒取整）；未运行或状态不属于当前服务进程时为 null
+        /// </summary>
+        private static TimeSpan? ComputeUptime(string serviceId, ServiceRunState state, int pid)
+        {
+            if (state != ServiceRunState.Running) return null;
+            var uptime = ServiceRuntimeState.GetUptime(new ServiceStateStore().Read(serviceId), pid, isRunning: true, DateTime.Now);
+            return uptime is { } value ? TimeSpan.FromSeconds(Math.Floor(value.TotalSeconds)) : null;
         }
 
         private Service GetCached(string serviceId)

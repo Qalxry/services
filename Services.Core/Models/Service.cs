@@ -66,6 +66,15 @@ namespace Services.Core.Models
 
         public bool IsRunning => State == ServiceRunState.Running;
 
+        private TimeSpan? _uptime;
+
+        /// <summary>运行时长（运行中且有属于当前服务进程的运行状态时有值），刷新状态时更新</summary>
+        public TimeSpan? Uptime
+        {
+            get => _uptime;
+            set => SetField(ref _uptime, value);
+        }
+
         public int Pid
         {
             get => _pid;
@@ -172,6 +181,7 @@ namespace Services.Core.Models
             WorkingDir = other.WorkingDir;
             Description = other.Description;
             State = other.State;
+            Uptime = other.Uptime;
             Pid = other.Pid;
             StartupType = other.StartupType;
             DelayedAutoStart = other.DelayedAutoStart;

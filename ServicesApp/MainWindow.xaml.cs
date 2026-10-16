@@ -263,13 +263,16 @@ namespace ServicesApp
         {
             this.DispatcherQueue.TryEnqueue(() =>
             {
-                var existing = Services.FirstOrDefault(s => s.Id == service.Id);
+                var existing = _allServices.FirstOrDefault(s => s.Id == service.Id);
                 if (existing != null)
                 {
+                    bool stateChanged = existing.State != service.State;
                     existing.State = service.State;
                     existing.Pid = service.Pid;
+                    existing.Uptime = service.Uptime;
                     existing.UpdatedAt = service.UpdatedAt;
-                    if (_sortColumn == SortColumn.Status) ApplySort();
+                    // 状态变化可能影响筛选与排序；运行时长每次刷新都会变化，只在按其排序时重排
+                    if (stateChanged || _sortColumn == SortColumn.Uptime) ApplyView();
                 }
             });
         }
@@ -285,20 +288,13 @@ namespace ServicesApp
                 if (!silent) UpdateStatus("正在加载服务...");
                 var list = await _serviceManager.GetServicesSnapshotAsync();
 
-                for (int i = Services.Count - 1; i >= 0; i--)
-                {
-                    if (!list.Any(s => s.Id == Services[i].Id))
-                    {
-                        Services.RemoveAt(i);
-                    }
-                }
-
+                _allServices.RemoveAll(s => !list.Any(item => item.Id == s.Id));
                 foreach (var item in list)
                 {
-                    var existing = Services.FirstOrDefault(s => s.Id == item.Id);
+                    var existing = _allServices.FirstOrDefault(s => s.Id == item.Id);
                     if (existing == null)
                     {
-                        Services.Add(item);
+                        _allServices.Add(item);
                     }
                     else
                     {
@@ -306,7 +302,7 @@ namespace ServicesApp
                     }
                 }
 
-                ApplySort();
+                ApplyView();
 
                 if (!silent) UpdateStatus($"已加载 {list.Count} 个服务。");
             }
@@ -325,7 +321,7 @@ namespace ServicesApp
             UpdateStatus("正在刷新服务列表...");
             await _serviceManager.InitializeAsync();
             LoadServices();
-            UpdateStatus($"已加载 {Services.Count} 个服务。");
+            UpdateStatus($"已加载 {_allServices.Count} 个服务。");
         }
 
         /// <summary>

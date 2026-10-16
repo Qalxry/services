@@ -24,9 +24,10 @@ namespace Services.Cli
             var rows = services.Select(s => new[]
             {
                 s.Id, s.Name, ServiceText.State(s.State), s.HasPid ? s.Pid.ToString() : "-",
+                s.Uptime is { } uptime ? ServiceText.Duration(uptime) : "-",
                 ServiceText.StartupMode(s.StartupType, s.DelayedAutoStart), s.ExePath
             }).ToList();
-            WriteTable(new[] { "ID", "名称", "状态", "PID", "启动类型", "程序路径" }, rows);
+            WriteTable(new[] { "ID", "名称", "状态", "PID", "运行时长", "启动类型", "程序路径" }, rows);
             return ExitCodes.Success;
         }
     }
